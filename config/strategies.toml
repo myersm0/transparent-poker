@@ -1,0 +1,99 @@
+# Strategy Archetypes
+# Each strategy defines baseline hand selection by position
+# Hand groups: Premium, Strong, Solid, Playable, Speculative, Marginal, Trash
+
+[rock]
+name = "Tight-Aggressive (TAG)"
+description = "Patient, waits for premium hands, aggressive when playing"
+opens_utg = ["Premium"]
+opens_mp = ["Premium", "Strong"]
+opens_co = ["Premium", "Strong", "Solid"]
+opens_btn = ["Premium", "Strong", "Solid"]
+opens_sb = ["Premium", "Strong"]
+defends_bb = ["Premium", "Strong", "Solid"]
+three_bet = ["Premium"]
+cold_call = ["Premium", "Strong"]
+aggression = "high"
+bluff_frequency = "low"
+continuation_bet = 0.7
+fold_to_aggression = "medium"
+
+[lag]
+name = "Loose-Aggressive (LAG)"
+description = "Wide range, constant pressure, hard to read"
+opens_utg = ["Premium", "Strong", "Solid"]
+opens_mp = ["Premium", "Strong", "Solid", "Playable"]
+opens_co = ["Premium", "Strong", "Solid", "Playable", "Speculative"]
+opens_btn = ["Premium", "Strong", "Solid", "Playable", "Speculative"]
+opens_sb = ["Premium", "Strong", "Solid", "Playable"]
+defends_bb = ["Premium", "Strong", "Solid", "Playable", "Speculative"]
+three_bet = ["Premium", "Strong", "Speculative"]
+cold_call = ["Solid", "Playable"]
+aggression = "very_high"
+bluff_frequency = "high"
+continuation_bet = 0.85
+fold_to_aggression = "low"
+
+[calling_station]
+name = "Calling Station"
+description = "Sees too many flops, rarely folds, rarely raises"
+opens_utg = ["Premium", "Strong"]
+opens_mp = ["Premium", "Strong", "Solid"]
+opens_co = ["Premium", "Strong", "Solid", "Playable"]
+opens_btn = ["Premium", "Strong", "Solid", "Playable", "Speculative"]
+opens_sb = ["Premium", "Strong", "Solid"]
+defends_bb = ["Premium", "Strong", "Solid", "Playable", "Speculative", "Marginal"]
+three_bet = ["Premium"]
+cold_call = ["Strong", "Solid", "Playable", "Speculative", "Marginal"]
+aggression = "low"
+bluff_frequency = "none"
+continuation_bet = 0.4
+fold_to_aggression = "very_low"
+
+[maniac]
+name = "Maniac"
+description = "Hyper-aggressive, raises constantly, unpredictable"
+opens_utg = ["Premium", "Strong", "Solid", "Playable"]
+opens_mp = ["Premium", "Strong", "Solid", "Playable", "Speculative"]
+opens_co = ["Premium", "Strong", "Solid", "Playable", "Speculative", "Marginal"]
+opens_btn = ["Premium", "Strong", "Solid", "Playable", "Speculative", "Marginal"]
+opens_sb = ["Premium", "Strong", "Solid", "Playable", "Speculative"]
+defends_bb = ["Premium", "Strong", "Solid", "Playable", "Speculative", "Marginal"]
+three_bet = ["Premium", "Strong", "Solid", "Speculative"]
+cold_call = ["Playable"]
+aggression = "extreme"
+bluff_frequency = "very_high"
+continuation_bet = 0.95
+fold_to_aggression = "medium"
+
+[nit]
+name = "Ultra-Tight (Nit)"
+description = "Only plays the absolute nuts, folds everything else"
+opens_utg = ["Premium"]
+opens_mp = ["Premium"]
+opens_co = ["Premium", "Strong"]
+opens_btn = ["Premium", "Strong"]
+opens_sb = ["Premium"]
+defends_bb = ["Premium", "Strong"]
+three_bet = ["Premium"]
+cold_call = ["Premium"]
+aggression = "medium"
+bluff_frequency = "none"
+continuation_bet = 0.9
+fold_to_aggression = "high"
+
+[balanced]
+name = "Balanced"
+description = "Solid fundamentals, adapts to table, hard to exploit"
+opens_utg = ["Premium", "Strong"]
+opens_mp = ["Premium", "Strong", "Solid"]
+opens_co = ["Premium", "Strong", "Solid", "Playable"]
+opens_btn = ["Premium", "Strong", "Solid", "Playable"]
+opens_sb = ["Premium", "Strong", "Solid"]
+defends_bb = ["Premium", "Strong", "Solid", "Playable"]
+three_bet = ["Premium", "Strong"]
+cold_call = ["Solid", "Playable"]
+aggression = "medium"
+bluff_frequency = "medium"
+continuation_bet = 0.65
+fold_to_aggression = "medium"

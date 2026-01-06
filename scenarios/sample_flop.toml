@@ -1,0 +1,57 @@
+game_id = "sample-001"
+hand_num = 15
+street = "flop"
+pot = 180.0
+blinds = [10.0, 20.0]
+
+[[board]]
+rank = "7"
+suit = "h"
+
+[[board]]
+rank = "7"
+suit = "d"
+
+[[board]]
+rank = "K"
+suit = "s"
+
+[[players]]
+seat = 0
+name = "Villain"
+stack = 420.0
+current_bet = 60.0
+status = "active"
+position = "button"
+is_hero = false
+is_actor = false
+last_action = "bet 60"
+
+[[players]]
+seat = 1
+name = "Hero"
+stack = 500.0
+current_bet = 0.0
+status = "active"
+position = "small_blind"
+is_hero = true
+is_actor = true
+
+[[players.hole_cards]]
+rank = "7"
+suit = "s"
+
+[[players.hole_cards]]
+rank = "7"
+suit = "c"
+
+[[players]]
+seat = 2
+name = "Nancy"
+stack = 480.0
+current_bet = 0.0
+status = "folded"
+position = "big_blind"
+is_hero = false
+is_actor = false
+last_action = "fold"

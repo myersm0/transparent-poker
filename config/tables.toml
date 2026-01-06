@@ -1,0 +1,112 @@
+[[tables]]
+id = "micro-cash"
+name = "Micro Stakes Cash"
+format = "cash"
+betting = "no-limit"
+small_blind = 1.0
+big_blind = 2.0
+min_buy_in = 40.0
+max_buy_in = 200.0
+min_players = 2
+max_players = 6
+max_raises_per_round = 4
+
+[[tables]]
+id = "low-cash"
+name = "Low Stakes Cash"
+format = "cash"
+betting = "no-limit"
+small_blind = 5.0
+big_blind = 10.0
+min_buy_in = 200.0
+max_buy_in = 1000.0
+min_players = 2
+max_players = 6
+max_raises_per_round = 4
+
+[[tables]]
+id = "raked-cash"
+name = "Raked Cash Game"
+format = "cash"
+betting = "no-limit"
+small_blind = 1.0
+big_blind = 2.0
+min_buy_in = 40.0
+max_buy_in = 200.0
+min_players = 2
+max_players = 6
+max_raises_per_round = 4
+rake_percent = 0.05
+rake_cap = 3.0
+no_flop_no_drop = true
+
+[[tables]]
+id = "fixed-limit"
+name = "Fixed Limit Cash"
+format = "cash"
+betting = "fixed-limit"
+small_blind = 1.0
+big_blind = 2.0
+min_buy_in = 20.0
+max_buy_in = 100.0
+min_players = 2
+max_players = 6
+max_raises_per_round = 4
+
+[[tables]]
+id = "home-sng"
+name = "Home Game SnG"
+format = "sit-n-go"
+betting = "no-limit"
+buy_in = 50.0
+starting_stack = 1500.0
+min_players = 3
+max_players = 6
+max_raises_per_round = 4
+payouts = [0.65, 0.35]
+blind_levels = [
+    { small = 10, big = 20, hands = 10 },
+    { small = 15, big = 30, hands = 10 },
+    { small = 25, big = 50, hands = 10 },
+    { small = 50, big = 100, hands = 10 },
+    { small = 100, big = 200, hands = 10 },
+]
+
+[[tables]]
+id = "turbo-sng"
+name = "Turbo SnG"
+format = "sit-n-go"
+betting = "no-limit"
+buy_in = 100.0
+starting_stack = 1000.0
+min_players = 2
+max_players = 6
+max_raises_per_round = 4
+payouts = [0.70, 0.30]
+blind_levels = [
+    { small = 25, big = 50, hands = 6 },
+    { small = 50, big = 100, hands = 6 },
+    { small = 75, big = 150, hands = 6 },
+    { small = 100, big = 200, hands = 6 },
+    { small = 150, big = 300, hands = 6 },
+    { small = 200, big = 400, hands = 6 },
+]
+
+[[tables]]
+id = "heads-up"
+name = "Heads-Up Challenge"
+format = "sit-n-go"
+betting = "no-limit"
+buy_in = 200.0
+starting_stack = 2000.0
+min_players = 2
+max_players = 2
+max_raises_per_round = 4
+payouts = [1.0]
+blind_levels = [
+    { small = 10, big = 20, hands = 15 },
+    { small = 20, big = 40, hands = 15 },
+    { small = 30, big = 60, hands = 15 },
+    { small = 50, big = 100, hands = 15 },
+    { small = 75, big = 150, hands = 15 },
+]

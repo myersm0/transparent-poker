@@ -1,0 +1,64 @@
+# Poker Arena Player Roster
+# 
+# Each player has:
+# - id: unique identifier
+# - name: display name (optional, defaults to capitalized id)
+# - version: for bankroll reset tracking
+# - join_probability: 0.0-1.0 chance of joining a game
+# - strategy: archetype from strategies.toml (rock, lag, calling_station, etc)
+# - strategy_model: override model for strategy sessions (optional, defaults to sonnet)
+# - personality: chat behavior settings
+#
+# Strategy archetypes: rock, lag, calling_station, maniac, nit, balanced
+
+# === REGULARS (high join probability) ===
+
+[[players]]
+id = "lisa"
+version = "0.2"
+join_probability = 0.85
+strategy = "lag"
+
+[[players]]
+id = "lonny"
+version = "0.2"
+join_probability = 0.80
+strategy = "rock"
+
+[[players]]
+id = "penelope"
+version = "0.2"
+join_probability = 0.75
+strategy = "calling_station"
+
+[[players]]
+id = "laura"
+version = "0.2"
+join_probability = 0.75
+strategy = "balanced"
+
+[[players]]
+id = "sylvan"
+version = "0.2"
+join_probability = 0.70
+strategy = "nit"
+
+# === SEMI-REGULARS ===
+
+[[players]]
+id = "chen"
+version = "0.2"
+join_probability = 0.50
+strategy = "balanced"
+
+[[players]]
+id = "rosa"
+version = "0.2"
+join_probability = 0.50
+strategy = "lag"
+
+[[players]]
+id = "enrico"
+version = "0.2"
+join_probability = 0.45
+strategy = "rock"
