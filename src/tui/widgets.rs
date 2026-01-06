@@ -32,7 +32,7 @@ fn render_hole_cards(cards: &[Card; 2]) -> Line<'static> {
 }
 
 fn render_hidden_cards() -> Line<'static> {
-	Line::styled("🂠 🂠", Style::default().fg(Color::DarkGray))
+	Line::styled("▓ ▓", Style::default().fg(Color::Blue))
 }
 
 pub struct PlayerWidget<'a> {
@@ -79,7 +79,7 @@ impl Widget for PlayerWidget<'_> {
 		if self.player.position == crate::view::Position::Button {
 			block = block.title_top(
 				Line::from(Span::styled(
-					"Ⓓ",
+					"◉",
 					Style::default()
 						.fg(Color::White)
 						.add_modifier(Modifier::BOLD),
