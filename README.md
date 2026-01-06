@@ -1,9 +1,23 @@
-# poker-terminal
+# Transparent Poker
 [![License](https://img.shields.io/badge/License-Apache_2.0-blue.svg)](LICENSE)
 [![Rust](https://img.shields.io/badge/rust-1.70%2B-orange.svg)](https://www.rust-lang.org/)
-[![CI](https://github.com/myersm0/poker-terminal/actions/workflows/ci.yml/badge.svg)](https://github.com/myersm0/poker-terminal/actions)
+[![CI](https://github.com/myersm0/transparent-poker/actions/workflows/ci.yml/badge.svg)](https://github.com/myersm0/transparent-poker/actions)
 
-A fully offline Texas Hold'em poker game for the terminal. Play against configurable AI opponents with different play styles.
+**Clean and clear open source poker. Online or off.**
+
+A full-featured Texas Hold'em game built for transparency: no ads, no pay-to-win, no in-app purchases. Just play poker.
+
+## What This Is
+- **Offline play** — Full game with configurable rules-based AI opponents. No account, no internet, no cost.
+- **Open source** — See exactly how the game works.
+- **Terminal-first** — Fast, lightweight, runs anywhere.
+
+## What's Coming
+- **Web client** — Play in your browser for hosted multiplayer games
+- **Transparent League** — Subscription-based competitive play with advanced AI opponents, rankings, and hand analysis
+- **Cloud AI** — Premium opponents powered by deep neural networks, with configurable, adaptive play styles (subscription tier only)
+
+The core game will always be free and open. Premium features (online league and advanced AI) fund development and server costs.
 
 ## Install
 ```bash
