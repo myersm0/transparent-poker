@@ -2,6 +2,7 @@
 [![License](https://img.shields.io/badge/License-Apache_2.0-blue.svg)](LICENSE)
 [![Rust](https://img.shields.io/badge/rust-1.70%2B-orange.svg)](https://www.rust-lang.org/)
 [![CI](https://github.com/myersm0/transparent-poker/actions/workflows/ci.yml/badge.svg)](https://github.com/myersm0/transparent-poker/actions)
+[![No Gambling](https://img.shields.io/badge/gambling-none-green)]()
 
 **Clean and clear open source poker. Online or off.**
 
