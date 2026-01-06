@@ -1,3 +1,4 @@
+use std::env;
 use std::io::{self, stdout};
 use std::sync::{mpsc, Arc};
 use std::time::{Duration, Instant};
@@ -27,6 +28,48 @@ use poker_tui::table::{load_tables, BlindClock, GameFormat, TableConfig};
 use poker_tui::tui::TableWidget;
 use poker_tui::view::TableView;
 
+fn parse_player_arg() -> Option<String> {
+	let args: Vec<String> = env::args().collect();
+	let mut i = 1;
+	while i < args.len() {
+		if args[i] == "--player" || args[i] == "-p" {
+			if i + 1 < args.len() {
+				return Some(args[i + 1].clone());
+			}
+		} else if args[i].starts_with("--player=") {
+			return Some(args[i].trim_start_matches("--player=").to_string());
+		}
+		i += 1;
+	}
+	None
+}
+
+fn resolve_player_id(bank: &mut Bank) -> Result<String, String> {
+	if let Some(name) = parse_player_arg() {
+		if bank.profile_exists(&name) {
+			return Ok(name);
+		} else {
+			return Err(format!(
+				"Player '{}' not found in profiles.toml. Use 'poker register {}' to create.",
+				name, name
+			));
+		}
+	}
+
+	if let Ok(name) = env::var("POKER_USER") {
+		if bank.profile_exists(&name) {
+			return Ok(name);
+		} else {
+			return Err(format!(
+				"POKER_USER='{}' not found in profiles.toml. Use 'poker register {}' to create.",
+				name, name
+			));
+		}
+	}
+
+	Err("No player specified. Use --player <name> or set POKER_USER environment variable.".to_string())
+}
+
 const SPEED_LEVELS: &[u64] = &[0, 100, 250, 500, 1000, 2000];
 const HAND_END_MULTIPLIER: u64 = 4;
 const MIN_ACTION_DELAY_MS: u64 = 500;
@@ -42,7 +85,10 @@ struct WinnerInfo {
 	seat: Seat,
 	amount: f32,
 	description: Option<String>,
+	highlight_until: Option<Instant>,
 }
+
+const WINNER_HIGHLIGHT_DURATION_MS: u64 = 2000;
 
 struct App {
 	table_view: TableView,
@@ -55,12 +101,14 @@ struct App {
 	hand_just_ended: bool,
 	human_seat: Seat,
 	final_standings: Vec<Standing>,
+	winner_seats: Vec<usize>,
 }
 
 impl App {
-	fn new(human_seat: Seat) -> Self {
+	fn new(human_seat: Seat, table_name: String, table_info: String) -> Self {
+		let table_view = TableView::new().with_table_info(table_name, table_info);
 		Self {
-			table_view: TableView::new(),
+			table_view,
 			view_updater: ViewUpdater::new(Some(human_seat)),
 			input_mode: InputMode::Watching,
 			status_message: None,
@@ -70,6 +118,7 @@ impl App {
 			hand_just_ended: false,
 			human_seat,
 			final_standings: Vec::new(),
+			winner_seats: Vec::new(),
 		}
 	}
 
@@ -93,6 +142,16 @@ impl App {
 		self.delay_until.map(|t| Instant::now() < t).unwrap_or(false)
 	}
 
+	fn update_winner_highlights(&mut self) {
+		let now = Instant::now();
+		self.winner_seats.retain(|seat| {
+			self.last_winners.iter().any(|w| {
+				w.seat.0 == *seat && w.highlight_until.map(|t| now < t).unwrap_or(false)
+			})
+		});
+		self.table_view.winner_seats = self.winner_seats.clone();
+	}
+
 	fn apply_event(&mut self, event: &GameEvent) {
 		log::event(&format!("{:?}", event));
 		self.view_updater.apply(&mut self.table_view, event);
@@ -100,6 +159,7 @@ impl App {
 		match event {
 			GameEvent::HandStarted { .. } => {
 				self.last_winners.clear();
+				self.winner_seats.clear();
 				self.hand_just_ended = false;
 			}
 			GameEvent::StreetChanged { .. } => {
@@ -114,11 +174,16 @@ impl App {
 				self.set_delay(self.action_delay());
 			}
 			GameEvent::PotAwarded { seat, amount, hand_description, .. } => {
+				let highlight_until = Some(Instant::now() + Duration::from_millis(WINNER_HIGHLIGHT_DURATION_MS));
 				self.last_winners.push(WinnerInfo {
 					seat: *seat,
 					amount: *amount,
 					description: hand_description.clone(),
+					highlight_until,
 				});
+				if !self.winner_seats.contains(&seat.0) {
+					self.winner_seats.push(seat.0);
+				}
 			}
 			GameEvent::HandEnded { .. } => {
 				self.hand_just_ended = true;
@@ -385,7 +450,9 @@ fn run_app(terminal: &mut Terminal<CrosstermBackend<io::Stdout>>) -> io::Result<
 	let mut bank = Bank::load().map_err(|e| io::Error::new(io::ErrorKind::Other, e))?;
 	let roster = load_players_auto().unwrap_or_default();
 
-	let host_id = "m".to_string();
+	let host_id = resolve_player_id(&mut bank).map_err(|e| {
+		io::Error::new(io::ErrorKind::InvalidInput, e)
+	})?;
 	bank.set_host(&host_id, true);
 
 	let mut menu = Menu::new(tables, bank, host_id.clone(), roster);
@@ -507,12 +574,14 @@ fn run_game(
 		runner.run();
 	});
 
-	let mut app = App::new(human_seat);
+	let table_info = format!("{} {}", table.betting, table.format);
+	let mut app = App::new(human_seat, table.name.clone(), table_info);
 	log::event("game started");
 
 	let mut pending_events: Vec<GameEvent> = Vec::new();
 
 	loop {
+		app.update_winner_highlights();
 		terminal.draw(|f| draw_ui(f, &app))?;
 
 		if event::poll(Duration::from_millis(50))? {
@@ -616,28 +685,34 @@ fn draw_ui(frame: &mut Frame, app: &App) {
 		.block(Block::default().borders(Borders::ALL).title("Result"));
 	frame.render_widget(winner, winner_area);
 
-	let status_text = match &app.input_mode {
-		InputMode::SelectingAction { .. } | InputMode::EnteringRaise { .. } => {
-			app.status_message.clone().unwrap_or_default()
-		}
-		InputMode::GameOver => {
-			app.status_message.clone().unwrap_or_else(|| "Game Over!".to_string())
-		}
-		_ => {
-			app.speed_status()
-		}
-	};
-
-	let status_style = match &app.input_mode {
-		InputMode::SelectingAction { .. } | InputMode::EnteringRaise { .. } => {
-			Style::default().fg(Color::Yellow).add_modifier(Modifier::BOLD)
-		}
-		InputMode::GameOver => Style::default().fg(Color::Green).add_modifier(Modifier::BOLD),
-		_ => Style::default().fg(Color::White),
+	let (status_text, status_title, status_style, border_style) = match &app.input_mode {
+		InputMode::SelectingAction { .. } | InputMode::EnteringRaise { .. } => (
+			app.status_message.clone().unwrap_or_default(),
+			" Your Turn ",
+			Style::default().fg(Color::Yellow).add_modifier(Modifier::BOLD),
+			Style::default().fg(Color::Yellow),
+		),
+		InputMode::GameOver => (
+			app.status_message.clone().unwrap_or_else(|| "Game Over!".to_string()),
+			" Game Over ",
+			Style::default().fg(Color::Green).add_modifier(Modifier::BOLD),
+			Style::default().fg(Color::Green),
+		),
+		InputMode::Watching => (
+			app.speed_status(),
+			" Status ",
+			Style::default().fg(Color::DarkGray),
+			Style::default().fg(Color::DarkGray),
+		),
 	};
 
 	let status = Paragraph::new(status_text)
 		.style(status_style)
-		.block(Block::default().borders(Borders::ALL).title("Action"));
+		.block(
+			Block::default()
+				.borders(Borders::ALL)
+				.border_style(border_style)
+				.title(status_title)
+		);
 	frame.render_widget(status, status_area);
 }

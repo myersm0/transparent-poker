@@ -84,6 +84,11 @@ pub struct TableConfig {
 	pub rake_cap: Option<f32>,
 	#[serde(default)]
 	pub no_flop_no_drop: bool,
+
+	#[serde(default)]
+	pub action_timeout_seconds: Option<u32>,
+	#[serde(default)]
+	pub max_consecutive_timeouts: Option<u32>,
 }
 
 fn default_min_players() -> usize {
@@ -205,6 +210,8 @@ fn default_tables() -> Vec<TableConfig> {
 			rake_percent: 0.0,
 			rake_cap: None,
 			no_flop_no_drop: false,
+			action_timeout_seconds: None,
+			max_consecutive_timeouts: None,
 		},
 		TableConfig {
 			id: "home-sng".to_string(),
@@ -231,6 +238,8 @@ fn default_tables() -> Vec<TableConfig> {
 			rake_percent: 0.0,
 			rake_cap: None,
 			no_flop_no_drop: false,
+			action_timeout_seconds: Some(30),
+			max_consecutive_timeouts: Some(3),
 		},
 	]
 }
@@ -410,6 +419,8 @@ mod tests {
 			rake_percent: 0.0,
 			rake_cap: None,
 			no_flop_no_drop: false,
+			action_timeout_seconds: None,
+			max_consecutive_timeouts: None,
 		};
 		assert_eq!(config.current_blinds(), (5.0, 10.0));
 	}
@@ -437,6 +448,8 @@ mod tests {
 			rake_percent: 0.0,
 			rake_cap: None,
 			no_flop_no_drop: false,
+			action_timeout_seconds: None,
+			max_consecutive_timeouts: None,
 		};
 		assert_eq!(config.current_blinds(), (15.0, 30.0));
 	}
@@ -462,6 +475,8 @@ mod tests {
 			rake_percent: 0.0,
 			rake_cap: None,
 			no_flop_no_drop: false,
+			action_timeout_seconds: None,
+			max_consecutive_timeouts: None,
 		};
 		assert_eq!(cash.effective_buy_in(), 80.0);
 
@@ -484,6 +499,8 @@ mod tests {
 			rake_percent: 0.0,
 			rake_cap: None,
 			no_flop_no_drop: false,
+			action_timeout_seconds: None,
+			max_consecutive_timeouts: None,
 		};
 		assert_eq!(sng.effective_buy_in(), 100.0);
 	}
@@ -509,6 +526,8 @@ mod tests {
 			rake_percent: 0.0,
 			rake_cap: None,
 			no_flop_no_drop: false,
+			action_timeout_seconds: None,
+			max_consecutive_timeouts: None,
 		};
 		assert_eq!(config.player_range(), "2-6 players");
 

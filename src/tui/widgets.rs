@@ -38,17 +38,25 @@ fn render_hidden_cards() -> Line<'static> {
 pub struct PlayerWidget<'a> {
 	player: &'a PlayerView,
 	show_cards: bool,
+	is_winner: bool,
 }
 
 impl<'a> PlayerWidget<'a> {
 	pub fn new(player: &'a PlayerView, show_cards: bool) -> Self {
-		Self { player, show_cards }
+		Self { player, show_cards, is_winner: false }
+	}
+
+	pub fn winner(mut self, is_winner: bool) -> Self {
+		self.is_winner = is_winner;
+		self
 	}
 }
 
 impl Widget for PlayerWidget<'_> {
 	fn render(self, area: Rect, buf: &mut Buffer) {
-		let border_style = if self.player.is_actor {
+		let border_style = if self.is_winner {
+			Style::default().fg(Color::Green).add_modifier(Modifier::BOLD)
+		} else if self.player.is_actor {
 			Style::default().fg(Color::Yellow).add_modifier(Modifier::BOLD)
 		} else {
 			match self.player.status {
@@ -65,7 +73,9 @@ impl Widget for PlayerWidget<'_> {
 			self.player.name.clone()
 		};
 
-		let title_style = if self.player.is_actor {
+		let title_style = if self.is_winner {
+			Style::default().fg(Color::Green).add_modifier(Modifier::BOLD)
+		} else if self.player.is_actor {
 			Style::default().fg(Color::Yellow).add_modifier(Modifier::BOLD)
 		} else {
 			Style::default()
@@ -75,6 +85,24 @@ impl Widget for PlayerWidget<'_> {
 			.borders(Borders::ALL)
 			.border_style(border_style)
 			.title(Span::styled(name_display, title_style));
+
+		if self.is_winner {
+			block = block.title_top(
+				Line::from(Span::styled(
+					"💰",
+					Style::default().fg(Color::Yellow),
+				))
+				.left_aligned()
+			);
+		} else if self.player.is_hero {
+			block = block.title_top(
+				Line::from(Span::styled(
+					"★",
+					Style::default().fg(Color::Cyan),
+				))
+				.left_aligned()
+			);
+		}
 
 		if self.player.position == crate::view::Position::Button {
 			block = block.title_top(
@@ -190,14 +218,25 @@ impl<'a> TableWidget<'a> {
 
 impl Widget for TableWidget<'_> {
 	fn render(self, area: Rect, buf: &mut Buffer) {
-		let outer_block = Block::default()
-			.borders(Borders::ALL)
-			.border_style(Style::default().fg(Color::Green))
-			.title(format!(
+		let title = if let Some(ref name) = self.view.table_name {
+			format!(
+				" {} | Hand #{} - {} ",
+				name,
+				self.view.hand_num,
+				self.view.street.name()
+			)
+		} else {
+			format!(
 				" Hand #{} - {} ",
 				self.view.hand_num,
 				self.view.street.name()
-			))
+			)
+		};
+
+		let outer_block = Block::default()
+			.borders(Borders::ALL)
+			.border_style(Style::default().fg(Color::Green))
+			.title(title)
 			.title_bottom(format!(
 				" Blinds ${:.0}/${:.0} ",
 				self.view.blinds.0, self.view.blinds.1
@@ -210,7 +249,8 @@ impl Widget for TableWidget<'_> {
 
 		for (i, player) in self.view.players.iter().enumerate() {
 			if let Some(seat_pos) = layout.seats.get(i) {
-				let widget = PlayerWidget::new(player, self.show_all_cards);
+				let is_winner = self.view.winner_seats.contains(&player.seat);
+				let widget = PlayerWidget::new(player, self.show_all_cards).winner(is_winner);
 				widget.render(seat_pos.rect(), buf);
 
 				if let Some(action) = &player.last_action {

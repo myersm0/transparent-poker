@@ -168,6 +168,10 @@ impl Bank {
 		self.profiles.get(id).map(|p| p.is_host).unwrap_or(false)
 	}
 
+	pub fn profile_exists(&self, id: &str) -> bool {
+		self.profiles.contains_key(id)
+	}
+
 	pub fn list_players(&self) -> Vec<(&str, &PlayerProfile)> {
 		self.profiles.iter().map(|(k, v)| (k.as_str(), v)).collect()
 	}
