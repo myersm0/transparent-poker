@@ -49,7 +49,7 @@ impl PlayerAdapter {
 		let board = game_state
 			.board
 			.iter()
-			.map(|c| convert_card(c))
+			.map(convert_card)
 			.collect();
 
 		let seats = game_state

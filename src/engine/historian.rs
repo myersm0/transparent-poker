@@ -244,7 +244,7 @@ impl Historian for EventHistorian {
 			}
 
 			Action::Award(payload) => {
-				let hand_desc = payload.rank.as_ref().map(|r| Self::format_rank(r));
+				let hand_desc = payload.rank.as_ref().map(Self::format_rank);
 
 				let mut net_amount = payload.award_amount;
 				let saw_flop = self.emitted_streets.lock().unwrap().contains(&1);

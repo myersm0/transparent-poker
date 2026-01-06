@@ -5,10 +5,11 @@ use serde::Deserialize;
 use super::hand_group::HandGroup;
 use super::position::Position;
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Deserialize)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Deserialize)]
 #[serde(rename_all = "snake_case")]
 pub enum Aggression {
 	Low,
+	#[default]
 	Medium,
 	High,
 	VeryHigh,
@@ -27,16 +28,11 @@ impl Aggression {
 	}
 }
 
-impl Default for Aggression {
-	fn default() -> Self {
-		Aggression::Medium
-	}
-}
-
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Deserialize)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Deserialize)]
 #[serde(rename_all = "snake_case")]
 pub enum BluffFrequency {
 	None,
+	#[default]
 	Low,
 	Medium,
 	High,
@@ -55,17 +51,12 @@ impl BluffFrequency {
 	}
 }
 
-impl Default for BluffFrequency {
-	fn default() -> Self {
-		BluffFrequency::Low
-	}
-}
-
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Deserialize)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Deserialize)]
 #[serde(rename_all = "snake_case")]
 pub enum FoldToAggression {
 	VeryLow,
 	Low,
+	#[default]
 	Medium,
 	High,
 	VeryHigh,
@@ -80,12 +71,6 @@ impl FoldToAggression {
 			FoldToAggression::High => 0.7,
 			FoldToAggression::VeryHigh => 0.85,
 		}
-	}
-}
-
-impl Default for FoldToAggression {
-	fn default() -> Self {
-		FoldToAggression::Medium
 	}
 }
 

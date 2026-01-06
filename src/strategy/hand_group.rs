@@ -1,3 +1,5 @@
+#![allow(clippy::nonminimal_bool)]
+
 use std::fmt;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, PartialOrd, Ord)]
@@ -140,7 +142,7 @@ fn classify_pair(rank: u8) -> HandGroup {
 		12 => HandGroup::Strong,
 		11 | 10 => HandGroup::Solid,
 		9 | 8 => HandGroup::Playable,
-		7 | 6 | 5 => HandGroup::Speculative,
+		5..=7 => HandGroup::Speculative,
 		_ => HandGroup::Marginal,
 	}
 }
@@ -164,7 +166,7 @@ fn classify_suited(high: u8, low: u8, connected: bool, one_gap: bool) -> HandGro
 	if high >= 10 && (connected || one_gap) {
 		return HandGroup::Playable;
 	}
-	if connected && high >= 5 && high <= 9 {
+	if connected && (5..=9).contains(&high) {
 		return HandGroup::Speculative;
 	}
 	if one_gap && high >= 6 {
