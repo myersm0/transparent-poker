@@ -1,4 +1,8 @@
 # poker-terminal
+[![License](https://img.shields.io/badge/License-Apache_2.0-blue.svg)](LICENSE)
+[![Rust](https://img.shields.io/badge/rust-1.70%2B-orange.svg)](https://www.rust-lang.org/)
+[![CI](https://github.com/myersm0/poker-terminal/actions/workflows/ci.yml/badge.svg)](https://github.com/myersm0/poker-terminal/actions)
+
 A fully offline Texas Hold'em poker game for the terminal. Play against configurable AI opponents with different play styles.
 
 ## Quick Start
