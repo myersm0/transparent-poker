@@ -5,9 +5,10 @@
 
 **Clean and clear open source poker. Online or off.**
 
-A full-featured Texas Hold'em game built for transparency: no ads, no pay-to-win, no in-app purchases. Just play poker.
+A full-featured Texas Hold'em game built for transparency: no ads, no pay-to-win, no in-app purchases. Just serious poker with a fully open source codebase.
 
 ## What This Is
+This is poker for fun, practice, and competition — not money. There are no real-money stakes here.
 - **Offline play** — Full game with configurable rules-based AI opponents. No account, no internet, no cost.
 - **Open source** — See exactly how the game works.
 - **Terminal-first** — Fast, lightweight, runs anywhere.
