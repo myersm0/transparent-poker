@@ -5,9 +5,9 @@
 
 A fully offline Texas Hold'em poker game for the terminal. Play against configurable AI opponents with different play styles.
 
-## Quick Start
+## Install
 ```bash
-cargo run --bin play
+curl -fsSL https://raw.githubusercontent.com/myersm0/poker-terminal/main/install.sh | sh
 ```
 
 ## Controls
