@@ -1,7 +1,5 @@
 #![allow(clippy::collapsible_if)]
 #![allow(clippy::large_enum_variant)]
-#![allow(clippy::collapsible_if)]
-#![allow(clippy::large_enum_variant)]
 #![allow(clippy::if_same_then_else)]
 #![allow(clippy::expect_fun_call)]
 
@@ -18,4 +16,3 @@ pub mod strategy;
 pub mod table;
 pub mod tui;
 pub mod view;
-
