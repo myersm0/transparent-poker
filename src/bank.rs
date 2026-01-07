@@ -113,7 +113,7 @@ impl Bank {
 
 	pub fn debit(&mut self, id: &str, amount: f32) -> Result<(), InsufficientFunds> {
 		self.ensure_exists(id);
-		let profile = self.profiles.get_mut(id).unwrap();
+		let profile = self.profiles.get_mut(id).expect("profile exists after ensure_exists");
 
 		if profile.bankroll < amount {
 			return Err(InsufficientFunds {
@@ -130,7 +130,7 @@ impl Bank {
 
 	pub fn credit(&mut self, id: &str, amount: f32) {
 		self.ensure_exists(id);
-		let profile = self.profiles.get_mut(id).unwrap();
+		let profile = self.profiles.get_mut(id).expect("profile exists after ensure_exists");
 		profile.bankroll += amount;
 		logging::log("Bank", "CREDIT", &format!("{}: +${:.2} (bal: ${:.2})", id, amount, profile.bankroll));
 	}

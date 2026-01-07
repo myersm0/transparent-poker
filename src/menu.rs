@@ -138,7 +138,7 @@ impl Menu {
 										self.add_next_ai();
 									} else if self.can_start() {
 										return Ok(MenuResult::StartGame {
-											table: self.selected_table.clone().unwrap(),
+											table: self.selected_table.clone().expect("table selected in lobby state"),
 											players: self.lobby_players.clone(),
 										});
 									}
@@ -152,7 +152,7 @@ impl Menu {
 								KeyCode::Char('s') => {
 									if self.can_start() {
 										return Ok(MenuResult::StartGame {
-											table: self.selected_table.clone().unwrap(),
+											table: self.selected_table.clone().expect("table selected in lobby state"),
 											players: self.lobby_players.clone(),
 										});
 									}
@@ -314,7 +314,7 @@ impl Menu {
 
 	fn draw_lobby(&self, frame: &mut Frame) {
 		let area = frame.area();
-		let table = self.selected_table.as_ref().unwrap();
+		let table = self.selected_table.as_ref().expect("table selected in lobby state");
 
 		let bg = Block::default().style(Style::default().bg(self.theme.background()));
 		frame.render_widget(bg, area);
