@@ -1,0 +1,55 @@
+# PaperColor Light Theme
+# https://github.com/NLKNguyen/papercolor-theme (MIT)
+
+background_color = "#EEEEEE"
+
+hero_border_style = "double"
+hero_border_color = "#0087AF"
+
+actor_border_color = "#D75F00"
+actor_name_color = "#D75F00"
+
+folded_border_color = "#878787"
+folded_text_color = "#878787"
+
+eliminated_border_color = "#BCBCBC"
+eliminated_text_color = "#BCBCBC"
+
+all_in_border_color = "#AF00AF"
+
+winner_border_color = "#008700"
+winner_name_color = "#008700"
+
+default_border_color = "#444444"
+
+stack_color = "#008700"
+bet_color = "#D75F00"
+pot_color = "#D75F00"
+
+red_suit_color = "#D70000"
+black_suit_color = "#444444"
+hidden_card_color = "#005FAF"
+
+table_border_color = "#008700"
+chat_border_color = "#005FAF"
+chat_text_color = "#444444"
+system_message_color = "#0087AF"
+
+menu_border_color = "#008700"
+menu_title_color = "#444444"
+menu_text_color = "#444444"
+menu_selected_color = "#EEEEEE"
+menu_selected_bg = "#008700"
+menu_unselected_color = "#878787"
+menu_host_marker_color = "#0087AF"
+menu_ai_marker_color = "#AF00AF"
+menu_highlight_color = "#0087AF"
+
+status_watching_color = "#878787"
+status_watching_border = "#878787"
+status_your_turn_color = "#D75F00"
+status_your_turn_border = "#D75F00"
+status_quit_color = "#D70000"
+status_quit_border = "#D70000"
+status_game_over_color = "#008700"
+status_game_over_border = "#008700"
