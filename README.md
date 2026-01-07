@@ -6,17 +6,19 @@
 
 **Clean and clear open source poker. Online or off.**
 
-A full-featured Texas Hold'em game built for transparency: no ads, no pay-to-win, no in-app purchases. Just serious poker with a fully open source codebase.
+A Texas Hold'em game built for transparency: no ads, no in-game purchases, no distractions. Just serious poker with a fully open source codebase.
+
+***Development status***: This is still in early development. Check back soon.
 
 ## What This Is
 This is poker for fun, practice, and competition — not money. There are no real-money stakes here.
 - **Offline play** — Full game with configurable rules-based AI opponents. No account, no internet, no cost.
 - **Open source** — See exactly how the game works.
-- **Terminal-first** — Fast, lightweight, runs anywhere.
+- **Terminal-first** — Fast, lightweight, configurable, runs on any OS.
 
 ## What's Coming
 - **Web client** — Play in your browser for hosted multiplayer games
-- **Transparent League** — Subscription-based competitive play with advanced AI opponents, rankings, and hand analysis
+- **League** — Subscription-based competitive play with advanced AI opponents, rankings, and hand analysis
 - **Cloud AI** — Premium opponents powered by deep neural networks, with configurable, adaptive play styles (subscription tier only)
 
 The core game will always be free and open. Premium features (online league and advanced AI) fund development and server costs.

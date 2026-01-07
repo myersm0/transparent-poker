@@ -4,9 +4,15 @@ use crossterm::{
 	terminal::{disable_raw_mode, enable_raw_mode, EnterAlternateScreen, LeaveAlternateScreen},
 	ExecutableCommand,
 };
-use ratatui::{backend::CrosstermBackend, Terminal};
+use ratatui::{
+	backend::CrosstermBackend,
+	style::Style,
+	widgets::Block,
+	Terminal,
+};
 
 use poker_tui::view::{ActionPrompt, Card, ChatMessage, PlayerStatus, PlayerView, Position, Street, TableView};
+use poker_tui::theme::Theme;
 use poker_tui::tui::TableWidget;
 
 fn main() -> io::Result<()> {
@@ -17,13 +23,18 @@ fn main() -> io::Result<()> {
 	let mut terminal = Terminal::new(backend)?;
 
 	let scenarios = build_scenarios();
+	let theme = Theme::load(None);
 	let mut current = 0;
 
 	loop {
 		terminal.draw(|frame| {
+			let area = frame.area();
+			let bg = Block::default().style(Style::default().bg(theme.background()));
+			frame.render_widget(bg, area);
+
 			let view = &scenarios[current];
-			let widget = TableWidget::new(view);
-			frame.render_widget(widget, frame.area());
+			let widget = TableWidget::new(view, &theme);
+			frame.render_widget(widget, area);
 		})?;
 
 		if event::poll(std::time::Duration::from_millis(100))? {
@@ -89,6 +100,9 @@ fn scenario_preflop_6_players() -> TableView {
 			ChatMessage { sender: "Murphy".to_string(), text: "folds".to_string(), is_system: false },
 			ChatMessage { sender: "Wildcard".to_string(), text: "re-raises to $50".to_string(), is_system: false },
 		],
+		table_name: Some("Demo Table".to_string()),
+		table_info: Some("No-Limit Cash".to_string()),
+		winner_seats: vec![],
 		players: vec![
 			PlayerView {
 				seat: 0,
@@ -194,6 +208,9 @@ fn scenario_flop_action() -> TableView {
 			ChatMessage { sender: "Ivan".to_string(), text: "checks".to_string(), is_system: false },
 			ChatMessage { sender: "Wildcard".to_string(), text: "checks".to_string(), is_system: false },
 		],
+		table_name: Some("Demo Table".to_string()),
+		table_info: Some("No-Limit Cash".to_string()),
+		winner_seats: vec![],
 		players: vec![
 			PlayerView {
 				seat: 0,
@@ -280,6 +297,9 @@ fn scenario_heads_up() -> TableView {
 			ChatMessage { sender: "Dealer".to_string(), text: "River: 9♥".to_string(), is_system: true },
 			ChatMessage { sender: "Lisa".to_string(), text: "bets $200".to_string(), is_system: false },
 		],
+		table_name: Some("Heads-Up Championship".to_string()),
+		table_info: Some("No-Limit SnG".to_string()),
+		winner_seats: vec![],
 		players: vec![
 			PlayerView {
 				seat: 0,
@@ -335,6 +355,9 @@ fn scenario_showdown() -> TableView {
 			ChatMessage { sender: "Hero".to_string(), text: "shows A♥ J♠ - Three of a Kind".to_string(), is_system: false },
 			ChatMessage { sender: "".to_string(), text: "Hero wins $500 with Trip Aces!".to_string(), is_system: true },
 		],
+		table_name: Some("Demo Table".to_string()),
+		table_info: Some("No-Limit Cash".to_string()),
+		winner_seats: vec![1],
 		players: vec![
 			PlayerView {
 				seat: 0,
@@ -406,6 +429,9 @@ fn scenario_full_table_10() -> TableView {
 			ChatMessage { sender: "Bob".to_string(), text: "raises to $30".to_string(), is_system: false },
 			ChatMessage { sender: "Carol".to_string(), text: "folds".to_string(), is_system: false },
 		],
+		table_name: Some("Full Ring".to_string()),
+		table_info: Some("No-Limit Cash 10-max".to_string()),
+		winner_seats: vec![],
 		players: vec![
 			PlayerView {
 				seat: 0,
@@ -569,6 +595,9 @@ fn scenario_short_handed() -> TableView {
 			ChatMessage { sender: "Andy".to_string(), text: "bets $80".to_string(), is_system: false },
 			ChatMessage { sender: "".to_string(), text: "q to quit, ← → to cycle".to_string(), is_system: true },
 		],
+		table_name: Some("Short Handed".to_string()),
+		table_info: Some("No-Limit Cash 3-max".to_string()),
+		winner_seats: vec![],
 		players: vec![
 			PlayerView {
 				seat: 0,

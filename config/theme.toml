@@ -1,0 +1,58 @@
+# Poker TUI Theme Configuration
+#
+# To customize, copy this file to your config directory:
+#   - Linux: ~/.config/transparent-poker/theme.toml
+#   - macOS: ~/Library/Application Support/transparent-poker/theme.toml
+#   - Windows: C:\Users\<User>\AppData\Roaming\transparent-poker\theme.toml
+#
+# If no user config exists, falls back to config/theme.toml in the repo.
+# 
+# Colors can be specified as:
+#   - Named colors: black, red, green, yellow, blue, magenta, cyan, 
+#                   gray, dark_gray, light_red, light_green, light_yellow,
+#                   light_blue, light_magenta, light_cyan, white
+#   - Hex: #FF0000
+#   - RGB: rgb(255, 0, 0)
+#
+# Border styles: plain, rounded, double, thick
+
+# Hero (your player) - uses double border by default for visibility
+hero_border_style = "double"
+hero_border_color = "cyan"
+
+# Current actor (player whose turn it is)
+actor_border_color = "yellow"
+actor_name_color = "yellow"
+
+# Folded players - medium gray, still visible but muted
+folded_border_color = "gray"
+folded_text_color = "gray"
+
+# Eliminated players - faded into background
+eliminated_border_color = "dark_gray"
+eliminated_text_color = "dark_gray"
+
+# All-in players
+all_in_border_color = "magenta"
+
+# Winner highlight (during pot award animation)
+winner_border_color = "green"
+winner_name_color = "green"
+
+# Default player border (active, not special)
+default_border_color = "white"
+
+# Money display
+stack_color = "green"
+bet_color = "yellow"
+pot_color = "yellow"
+
+# Card colors
+red_suit_color = "red"
+black_suit_color = "white"
+hidden_card_color = "blue"
+
+# Table elements
+table_border_color = "green"
+chat_border_color = "blue"
+system_message_color = "cyan"

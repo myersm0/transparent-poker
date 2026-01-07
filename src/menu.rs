@@ -4,7 +4,7 @@ use crossterm::event::{self, Event, KeyCode, KeyEventKind};
 use ratatui::{
 	backend::Backend,
 	layout::{Constraint, Direction, Layout},
-	style::{Color, Modifier, Style},
+	style::{Modifier, Style},
 	text::{Line, Span},
 	widgets::{Block, Borders, List, ListItem, ListState, Paragraph},
 	Frame, Terminal,
@@ -13,6 +13,7 @@ use ratatui::{
 use crate::bank::Bank;
 use crate::config::PlayerConfig;
 use crate::table::{GameFormat, TableConfig};
+use crate::theme::Theme;
 
 #[derive(Debug, Clone)]
 pub struct LobbyPlayer {
@@ -46,10 +47,11 @@ pub struct Menu {
 	selected_table: Option<TableConfig>,
 	lobby_players: Vec<LobbyPlayer>,
 	lobby_cursor: usize,
+	theme: Theme,
 }
 
 impl Menu {
-	pub fn new(tables: Vec<TableConfig>, bank: Bank, host_id: String, roster: Vec<PlayerConfig>) -> Self {
+	pub fn new(tables: Vec<TableConfig>, bank: Bank, host_id: String, roster: Vec<PlayerConfig>, theme: Theme) -> Self {
 		let mut table_list_state = ListState::default();
 		table_list_state.select(Some(0));
 
@@ -63,6 +65,7 @@ impl Menu {
 			selected_table: None,
 			lobby_players: Vec::new(),
 			lobby_cursor: 0,
+			theme,
 		};
 
 		menu.lobby_players.push(LobbyPlayer {
@@ -246,6 +249,9 @@ impl Menu {
 	fn draw_table_select(&self, frame: &mut Frame) {
 		let area = frame.area();
 
+		let bg = Block::default().style(Style::default().bg(self.theme.background()));
+		frame.render_widget(bg, area);
+
 		let chunks = Layout::default()
 			.direction(Direction::Vertical)
 			.constraints([
@@ -260,8 +266,8 @@ impl Menu {
 			"  POKER TUI                                    Bankroll: ${:.0}",
 			host_bankroll
 		))
-		.style(Style::default().fg(Color::Yellow).add_modifier(Modifier::BOLD))
-		.block(Block::default().borders(Borders::ALL));
+		.style(Style::default().fg(self.theme.menu_title()).add_modifier(Modifier::BOLD))
+		.block(Block::default().borders(Borders::ALL).border_style(Style::default().fg(self.theme.menu_border())));
 		frame.render_widget(header, chunks[0]);
 
 		let items: Vec<ListItem> = self
@@ -271,13 +277,13 @@ impl Menu {
 				let line = Line::from(vec![
 					Span::styled(
 						format!("{:<25}", t.name),
-						Style::default().fg(Color::White),
+						Style::default().fg(self.theme.menu_text()),
 					),
 					Span::styled(
 						format!("{:<18}", t.summary()),
-						Style::default().fg(Color::Cyan),
+						Style::default().fg(self.theme.menu_highlight()),
 					),
-					Span::styled(t.player_range(), Style::default().fg(Color::DarkGray)),
+					Span::styled(t.player_range(), Style::default().fg(self.theme.menu_unselected())),
 				]);
 				ListItem::new(line)
 			})
@@ -287,11 +293,13 @@ impl Menu {
 			.block(
 				Block::default()
 					.title(" SELECT TABLE ")
-					.borders(Borders::ALL),
+					.borders(Borders::ALL)
+					.border_style(Style::default().fg(self.theme.menu_border())),
 			)
 			.highlight_style(
 				Style::default()
-					.bg(Color::DarkGray)
+					.fg(self.theme.menu_selected())
+					.bg(self.theme.menu_selected_bg())
 					.add_modifier(Modifier::BOLD),
 			)
 			.highlight_symbol("> ");
@@ -299,14 +307,17 @@ impl Menu {
 		frame.render_stateful_widget(list, chunks[1], &mut self.table_list_state.clone());
 
 		let help = Paragraph::new("  [↑/↓] Select  [Enter] Open Lobby  [q] Quit")
-			.style(Style::default().fg(Color::DarkGray))
-			.block(Block::default().borders(Borders::ALL));
+			.style(Style::default().fg(self.theme.menu_unselected()))
+			.block(Block::default().borders(Borders::ALL).border_style(Style::default().fg(self.theme.menu_border())));
 		frame.render_widget(help, chunks[2]);
 	}
 
 	fn draw_lobby(&self, frame: &mut Frame) {
 		let area = frame.area();
 		let table = self.selected_table.as_ref().unwrap();
+
+		let bg = Block::default().style(Style::default().bg(self.theme.background()));
+		frame.render_widget(bg, area);
 
 		let chunks = Layout::default()
 			.direction(Direction::Vertical)
@@ -319,13 +330,14 @@ impl Menu {
 			.split(area);
 
 		let header = Paragraph::new(format!("  TABLE: {}", table.name))
-			.style(Style::default().fg(Color::Yellow).add_modifier(Modifier::BOLD))
-			.block(Block::default().borders(Borders::ALL));
+			.style(Style::default().fg(self.theme.menu_title()).add_modifier(Modifier::BOLD))
+			.block(Block::default().borders(Borders::ALL).border_style(Style::default().fg(self.theme.menu_border())));
 		frame.render_widget(header, chunks[0]);
 
 		let info = self.build_table_info(table);
 		let info_widget = Paragraph::new(info)
-			.block(Block::default().borders(Borders::ALL));
+			.style(Style::default().fg(self.theme.menu_text()))
+			.block(Block::default().borders(Borders::ALL).border_style(Style::default().fg(self.theme.menu_border())));
 		frame.render_widget(info_widget, chunks[1]);
 
 		let player_lines = self.build_player_list(table);
@@ -337,7 +349,8 @@ impl Menu {
 						self.lobby_players.len(),
 						table.max_players
 					))
-					.borders(Borders::ALL),
+					.borders(Borders::ALL)
+					.border_style(Style::default().fg(self.theme.menu_border())),
 			);
 		frame.render_widget(player_list, chunks[2]);
 
@@ -352,8 +365,8 @@ impl Menu {
 			.leak()
 		};
 		let help = Paragraph::new(help_text)
-			.style(Style::default().fg(Color::DarkGray))
-			.block(Block::default().borders(Borders::ALL));
+			.style(Style::default().fg(self.theme.menu_unselected()))
+			.block(Block::default().borders(Borders::ALL).border_style(Style::default().fg(self.theme.menu_border())));
 		frame.render_widget(help, chunks[3]);
 	}
 
@@ -410,11 +423,20 @@ impl Menu {
 			};
 
 			let status = if can_afford { "Ready" } else { "Broke!" };
-			let status_color = if can_afford { Color::Green } else { Color::Red };
+			let status_color = if can_afford { self.theme.stack() } else { self.theme.status_quit() };
+
+			let name_color = if player.is_host {
+				self.theme.menu_host_marker()
+			} else if !player.is_human {
+				self.theme.menu_ai_marker()
+			} else {
+				self.theme.menu_text()
+			};
 
 			lines.push(Line::from(vec![
-				Span::raw(format!("{}{:<20}", cursor, format!("{}{}", player.id, host_tag))),
-				Span::styled(format!("${:<12.0}", bankroll), Style::default().fg(Color::Yellow)),
+				Span::raw(cursor),
+				Span::styled(format!("{:<20}", format!("{}{}", player.id, host_tag)), Style::default().fg(name_color)),
+				Span::styled(format!("${:<12.0}", bankroll), Style::default().fg(self.theme.bet())),
 				Span::styled(status, Style::default().fg(status_color)),
 			]));
 		}
@@ -427,7 +449,7 @@ impl Menu {
 			};
 			lines.push(Line::from(vec![Span::styled(
 				format!("{}+ Add player...", cursor),
-				Style::default().fg(Color::DarkGray),
+				Style::default().fg(self.theme.menu_unselected()),
 			)]));
 		}
 

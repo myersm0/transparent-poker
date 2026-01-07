@@ -106,6 +106,12 @@ pub struct TableView {
 	pub action_prompt: Option<ActionPrompt>,
 	#[serde(default)]
 	pub chat_messages: Vec<ChatMessage>,
+	#[serde(default)]
+	pub table_name: Option<String>,
+	#[serde(default)]
+	pub table_info: Option<String>,
+	#[serde(default)]
+	pub winner_seats: Vec<usize>,
 }
 
 #[derive(Debug, Clone, Deserialize)]
@@ -137,7 +143,16 @@ impl TableView {
 			blinds: (0.0, 0.0),
 			action_prompt: None,
 			chat_messages: Vec::new(),
+			table_name: None,
+			table_info: None,
+			winner_seats: Vec::new(),
 		}
+	}
+
+	pub fn with_table_info(mut self, name: String, info: String) -> Self {
+		self.table_name = Some(name);
+		self.table_info = Some(info);
+		self
 	}
 
 	pub fn actor(&self) -> Option<&PlayerView> {

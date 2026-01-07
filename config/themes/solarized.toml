@@ -1,0 +1,52 @@
+# Solarized Dark Theme
+# https://ethanschoonover.com/solarized/
+
+hero_border_style = "double"
+hero_border_color = "#2AA198"
+
+actor_border_color = "#B58900"
+actor_name_color = "#B58900"
+
+folded_border_color = "#657B83"
+folded_text_color = "#657B83"
+
+eliminated_border_color = "#073642"
+eliminated_text_color = "#586E75"
+
+all_in_border_color = "#D33682"
+
+winner_border_color = "#859900"
+winner_name_color = "#859900"
+
+default_border_color = "#93A1A1"
+
+stack_color = "#859900"
+bet_color = "#B58900"
+pot_color = "#CB4B16"
+
+red_suit_color = "#DC322F"
+black_suit_color = "#93A1A1"
+hidden_card_color = "#268BD2"
+
+table_border_color = "#859900"
+chat_border_color = "#268BD2"
+system_message_color = "#2AA198"
+
+menu_border_color = "#268BD2"
+menu_title_color = "#93A1A1"
+menu_text_color = "#839496"
+menu_selected_color = "#002B36"
+menu_selected_bg = "#859900"
+menu_unselected_color = "#657B83"
+menu_host_marker_color = "#2AA198"
+menu_ai_marker_color = "#D33682"
+menu_highlight_color = "#2AA198"
+
+status_watching_color = "#657B83"
+status_watching_border = "#657B83"
+status_your_turn_color = "#B58900"
+status_your_turn_border = "#B58900"
+status_quit_color = "#DC322F"
+status_quit_border = "#DC322F"
+status_game_over_color = "#859900"
+status_game_over_border = "#859900"

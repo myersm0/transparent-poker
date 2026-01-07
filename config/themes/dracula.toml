@@ -1,0 +1,54 @@
+# Dracula Theme
+# https://draculatheme.com/
+
+background_color = "#282A36"
+
+hero_border_style = "double"
+hero_border_color = "#8BE9FD"
+
+actor_border_color = "#F1FA8C"
+actor_name_color = "#F1FA8C"
+
+folded_border_color = "#6272A4"
+folded_text_color = "#6272A4"
+
+eliminated_border_color = "#44475A"
+eliminated_text_color = "#44475A"
+
+all_in_border_color = "#FF79C6"
+
+winner_border_color = "#50FA7B"
+winner_name_color = "#50FA7B"
+
+default_border_color = "#F8F8F2"
+
+stack_color = "#50FA7B"
+bet_color = "#F1FA8C"
+pot_color = "#FFB86C"
+
+red_suit_color = "#FF5555"
+black_suit_color = "#F8F8F2"
+hidden_card_color = "#BD93F9"
+
+table_border_color = "#50FA7B"
+chat_border_color = "#BD93F9"
+system_message_color = "#8BE9FD"
+
+menu_border_color = "#BD93F9"
+menu_title_color = "#F8F8F2"
+menu_text_color = "#F8F8F2"
+menu_selected_color = "#282A36"
+menu_selected_bg = "#FF79C6"
+menu_unselected_color = "#6272A4"
+menu_host_marker_color = "#8BE9FD"
+menu_ai_marker_color = "#FF79C6"
+menu_highlight_color = "#8BE9FD"
+
+status_watching_color = "#6272A4"
+status_watching_border = "#6272A4"
+status_your_turn_color = "#F1FA8C"
+status_your_turn_border = "#F1FA8C"
+status_quit_color = "#FF5555"
+status_quit_border = "#FF5555"
+status_game_over_color = "#50FA7B"
+status_game_over_border = "#50FA7B"
