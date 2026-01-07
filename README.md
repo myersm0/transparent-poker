@@ -10,6 +10,10 @@ A Texas Hold'em game built for transparency: no ads, no in-game purchases, no di
 
 ***Development status***: This is still in early development. Check back soon.
 
+<p align="left">
+  <img src="assets/dracula.png" width="700">
+</p>
+
 ## What This Is
 This is poker for fun, practice, and competition — not money. There are no real-money stakes here.
 - **Offline play** — Full game with configurable rules-based AI opponents. No account, no internet, no cost.
