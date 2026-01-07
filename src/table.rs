@@ -199,8 +199,8 @@ pub fn load_tables() -> Result<Vec<TableConfig>, String> {
 }
 
 fn config_path() -> Result<PathBuf, String> {
-	if let Some(home) = std::env::var_os("HOME") {
-		let user_path = PathBuf::from(home).join(".config/poker-terminal/tables.toml");
+	if let Some(config_dir) = dirs::config_dir() {
+		let user_path = config_dir.join("transparent-poker").join("tables.toml");
 		if user_path.exists() {
 			return Ok(user_path);
 		}

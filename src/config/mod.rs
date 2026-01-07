@@ -5,8 +5,8 @@ use std::path::{Path, PathBuf};
 fn config_paths(filename: &str) -> Vec<PathBuf> {
 	let mut paths = Vec::new();
 
-	if let Some(home) = std::env::var_os("HOME") {
-		let user_config = PathBuf::from(home).join(".config/poker-terminal").join(filename);
+	if let Some(config_dir) = dirs::config_dir() {
+		let user_config = config_dir.join("transparent-poker").join(filename);
 		paths.push(user_config);
 	}
 

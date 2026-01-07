@@ -1,9 +1,9 @@
 # Poker TUI Theme Configuration
 #
 # To customize, copy this file to your config directory:
-#   - Linux: ~/.config/poker-terminal/theme.toml
-#   - macOS: ~/Library/Application Support/poker-terminal/theme.toml
-#   - Windows: C:\Users\<User>\AppData\Roaming\poker-terminal\theme.toml
+#   - Linux: ~/.config/transparent-poker/theme.toml
+#   - macOS: ~/Library/Application Support/transparent-poker/theme.toml
+#   - Windows: C:\Users\<User>\AppData\Roaming\transparent-poker\theme.toml
 #
 # If no user config exists, falls back to config/theme.toml in the repo.
 # 

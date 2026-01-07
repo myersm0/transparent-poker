@@ -81,8 +81,8 @@ impl Bank {
 	}
 
 	fn config_path() -> Result<PathBuf, String> {
-		if let Some(home) = std::env::var_os("HOME") {
-			let dir = PathBuf::from(home).join(".config/poker-terminal");
+		if let Some(config_dir) = dirs::config_dir() {
+			let dir = config_dir.join("transparent-poker");
 			fs::create_dir_all(&dir)
 				.map_err(|e| format!("Failed to create config dir: {}", e))?;
 			Ok(dir.join("profiles.toml"))

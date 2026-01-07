@@ -91,7 +91,7 @@ impl Theme {
 
 	fn config_path() -> Option<PathBuf> {
 		if let Some(config_dir) = dirs::config_dir() {
-			let user_path = config_dir.join("poker-terminal").join("theme.toml");
+			let user_path = config_dir.join("transparent-poker").join("theme.toml");
 			if user_path.exists() {
 				return Some(user_path);
 			}
