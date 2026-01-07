@@ -12,7 +12,7 @@ use rand::seq::SliceRandom;
 use ratatui::{
 	backend::CrosstermBackend,
 	layout::{Constraint, Direction, Layout},
-	style::{Color, Modifier, Style},
+	style::{Modifier, Style},
 	widgets::{Block, Borders, Paragraph},
 	Frame, Terminal,
 };
@@ -58,6 +58,22 @@ fn parse_player_arg() -> Option<String> {
 			}
 		} else if args[i].starts_with("--player=") {
 			return Some(args[i].trim_start_matches("--player=").to_string());
+		}
+		i += 1;
+	}
+	None
+}
+
+fn parse_theme_arg() -> Option<String> {
+	let args: Vec<String> = env::args().collect();
+	let mut i = 1;
+	while i < args.len() {
+		if args[i] == "--theme" || args[i] == "-t" {
+			if i + 1 < args.len() {
+				return Some(args[i + 1].clone());
+			}
+		} else if args[i].starts_with("--theme=") {
+			return Some(args[i].trim_start_matches("--theme=").to_string());
 		}
 		i += 1;
 	}
@@ -126,7 +142,7 @@ struct App {
 }
 
 impl App {
-	fn new(human_seat: Seat, table_name: String, table_info: String) -> Self {
+	fn new(human_seat: Seat, table_name: String, table_info: String, theme: Theme) -> Self {
 		let table_view = TableView::new().with_table_info(table_name, table_info);
 		Self {
 			table_view,
@@ -137,7 +153,7 @@ impl App {
 			human_seat,
 			final_standings: Vec::new(),
 			quit_pending: false,
-			theme: Theme::load(),
+			theme,
 		}
 	}
 
@@ -427,6 +443,8 @@ fn main() -> io::Result<()> {
 }
 
 fn run_app(terminal: &mut Terminal<CrosstermBackend<io::Stdout>>) -> io::Result<()> {
+	let theme = Theme::load(parse_theme_arg().as_deref());
+
 	let tables = load_tables().unwrap_or_default();
 	let mut bank = Bank::load().map_err(|e| io::Error::new(io::ErrorKind::Other, e))?;
 	let roster = load_players_auto().unwrap_or_default();
@@ -436,13 +454,13 @@ fn run_app(terminal: &mut Terminal<CrosstermBackend<io::Stdout>>) -> io::Result<
 	})?;
 	bank.set_host(&host_id, true);
 
-	let mut menu = Menu::new(tables, bank, host_id.clone(), roster);
+	let mut menu = Menu::new(tables, bank, host_id.clone(), roster, theme.clone());
 
 	match menu.run(terminal)? {
 		MenuResult::Quit => return Ok(()),
 		MenuResult::StartGame { table, players } => {
 			let mut bank = Bank::load().map_err(|e| io::Error::new(io::ErrorKind::Other, e))?;
-			let standings = run_game(terminal, table.clone(), players, &mut bank, &host_id)?;
+			let standings = run_game(terminal, table.clone(), players, &mut bank, &host_id, theme)?;
 
 			match table.format {
 				GameFormat::Cash => {
@@ -477,6 +495,7 @@ fn run_game(
 	lobby_players: Vec<LobbyPlayer>,
 	bank: &mut Bank,
 	_host_id: &str,
+	theme: Theme,
 ) -> io::Result<Vec<Standing>> {
 	let (small_blind, big_blind) = table.current_blinds();
 	let starting_stack = table.effective_starting_stack();
@@ -556,7 +575,7 @@ fn run_game(
 	});
 
 	let table_info = format!("{} {}", table.betting, table.format);
-	let mut app = App::new(human_seat, table.name.clone(), table_info);
+	let mut app = App::new(human_seat, table.name.clone(), table_info, theme);
 	let delays = DelayConfig::from_table(&table);
 	log::event("game started");
 
@@ -709,9 +728,9 @@ fn draw_ui(frame: &mut Frame, app: &App) {
 	});
 
 	let winner_style = if has_recent_winner {
-		Style::default().fg(Color::Green).add_modifier(Modifier::BOLD)
+		Style::default().fg(app.theme.winner_border()).add_modifier(Modifier::BOLD)
 	} else {
-		Style::default().fg(Color::DarkGray)
+		Style::default().fg(app.theme.status_watching())
 	};
 
 	let winner = Paragraph::new(winner_text)
@@ -723,29 +742,29 @@ fn draw_ui(frame: &mut Frame, app: &App) {
 		InputMode::AwaitingAction { .. } | InputMode::EnteringRaise { .. } => (
 			app.status_message.clone().unwrap_or_default(),
 			" Your Turn ",
-			Style::default().fg(Color::Yellow).add_modifier(Modifier::BOLD),
-			Style::default().fg(Color::Yellow),
+			Style::default().fg(app.theme.status_your_turn()).add_modifier(Modifier::BOLD),
+			Style::default().fg(app.theme.status_your_turn_border()),
 		),
 		InputMode::GameOver => (
 			app.status_message.clone().unwrap_or_else(|| "Game Over!".to_string()),
 			" Game Over ",
-			Style::default().fg(Color::Green).add_modifier(Modifier::BOLD),
-			Style::default().fg(Color::Green),
+			Style::default().fg(app.theme.status_game_over()).add_modifier(Modifier::BOLD),
+			Style::default().fg(app.theme.status_game_over_border()),
 		),
 		InputMode::Watching => {
 			if app.quit_pending {
 				(
 					"Press 'q' again to quit, any other key to cancel".to_string(),
 					" Quit? ",
-					Style::default().fg(Color::Red).add_modifier(Modifier::BOLD),
-					Style::default().fg(Color::Red),
+					Style::default().fg(app.theme.status_quit()).add_modifier(Modifier::BOLD),
+					Style::default().fg(app.theme.status_quit_border()),
 				)
 			} else {
 				(
 					"[q] quit".to_string(),
 					" Status ",
-					Style::default().fg(Color::DarkGray),
-					Style::default().fg(Color::DarkGray),
+					Style::default().fg(app.theme.status_watching()),
+					Style::default().fg(app.theme.status_watching_border()),
 				)
 			}
 		}

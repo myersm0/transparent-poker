@@ -18,7 +18,7 @@ fn main() -> io::Result<()> {
 	let mut terminal = Terminal::new(backend)?;
 
 	let scenarios = build_scenarios();
-	let theme = Theme::load();
+	let theme = Theme::load(None);
 	let mut current = 0;
 
 	loop {

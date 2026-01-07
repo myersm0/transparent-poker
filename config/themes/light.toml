@@ -1,0 +1,52 @@
+# Light Theme
+# For light terminal backgrounds
+
+hero_border_style = "double"
+hero_border_color = "#0087AF"
+
+actor_border_color = "#AF8700"
+actor_name_color = "#AF8700"
+
+folded_border_color = "#949494"
+folded_text_color = "#949494"
+
+eliminated_border_color = "#BCBCBC"
+eliminated_text_color = "#BCBCBC"
+
+all_in_border_color = "#AF00AF"
+
+winner_border_color = "#008700"
+winner_name_color = "#008700"
+
+default_border_color = "#303030"
+
+stack_color = "#008700"
+bet_color = "#AF8700"
+pot_color = "#AF8700"
+
+red_suit_color = "#D70000"
+black_suit_color = "#000000"
+hidden_card_color = "#005FAF"
+
+table_border_color = "#008700"
+chat_border_color = "#005FAF"
+system_message_color = "#0087AF"
+
+menu_border_color = "#008700"
+menu_title_color = "#303030"
+menu_text_color = "#303030"
+menu_selected_color = "#FFFFFF"
+menu_selected_bg = "#008700"
+menu_unselected_color = "#6C6C6C"
+menu_host_marker_color = "#0087AF"
+menu_ai_marker_color = "#AF00AF"
+menu_highlight_color = "#0087AF"
+
+status_watching_color = "#6C6C6C"
+status_watching_border = "#6C6C6C"
+status_your_turn_color = "#AF8700"
+status_your_turn_border = "#AF8700"
+status_quit_color = "#D70000"
+status_quit_border = "#D70000"
+status_game_over_color = "#008700"
+status_game_over_border = "#008700"
