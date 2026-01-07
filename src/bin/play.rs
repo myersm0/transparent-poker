@@ -1,8 +1,8 @@
-use std::env;
 use std::io::{self, stdout};
 use std::sync::{mpsc, Arc};
 use std::time::{Duration, Instant};
 
+use clap::Parser;
 use crossterm::{
 	event::{self, Event, KeyCode, KeyEventKind},
 	execute,
@@ -29,6 +29,24 @@ use poker_tui::theme::Theme;
 use poker_tui::tui::TableWidget;
 use poker_tui::view::TableView;
 
+#[derive(Parser)]
+#[command(name = "poker")]
+#[command(about = "Transparent poker - play Texas Hold'em against AI opponents")]
+#[command(version)]
+struct Args {
+	#[arg(short, long, env = "POKER_USER")]
+	#[arg(help = "Player name (must exist in profiles.toml)")]
+	player: Option<String>,
+
+	#[arg(short, long, env = "POKER_THEME")]
+	#[arg(help = "Color theme (dark, light, dracula, solarized, gruvbox, nord, monokai, papercolor)")]
+	theme: Option<String>,
+
+	#[arg(long)]
+	#[arg(help = "List available themes and exit")]
+	list_themes: bool,
+}
+
 const WINNER_HIGHLIGHT_MS: u64 = 2000;
 
 #[derive(Clone, Copy)]
@@ -48,42 +66,20 @@ impl DelayConfig {
 	}
 }
 
-fn parse_player_arg() -> Option<String> {
-	let args: Vec<String> = env::args().collect();
-	let mut i = 1;
-	while i < args.len() {
-		if args[i] == "--player" || args[i] == "-p" {
-			if i + 1 < args.len() {
-				return Some(args[i + 1].clone());
-			}
-		} else if args[i].starts_with("--player=") {
-			return Some(args[i].trim_start_matches("--player=").to_string());
-		}
-		i += 1;
+fn list_themes() {
+	let themes = ["dark", "light", "dracula", "solarized", "gruvbox", "nord", "monokai", "papercolor"];
+	println!("Available themes:");
+	for theme in themes {
+		println!("  {}", theme);
 	}
-	None
+	println!("\nUsage: poker play --theme <name>");
+	println!("Or set POKER_THEME environment variable");
 }
 
-fn parse_theme_arg() -> Option<String> {
-	let args: Vec<String> = env::args().collect();
-	let mut i = 1;
-	while i < args.len() {
-		if args[i] == "--theme" || args[i] == "-t" {
-			if i + 1 < args.len() {
-				return Some(args[i + 1].clone());
-			}
-		} else if args[i].starts_with("--theme=") {
-			return Some(args[i].trim_start_matches("--theme=").to_string());
-		}
-		i += 1;
-	}
-	None
-}
-
-fn resolve_player_id(bank: &mut Bank) -> Result<String, String> {
-	if let Some(name) = parse_player_arg() {
-		if bank.profile_exists(&name) {
-			return Ok(name);
+fn resolve_player_id(player_arg: Option<&str>, bank: &Bank) -> Result<String, String> {
+	if let Some(name) = player_arg {
+		if bank.profile_exists(name) {
+			return Ok(name.to_string());
 		} else {
 			return Err(format!(
 				"Player '{}' not found in profiles.toml. Use 'poker register {}' to create.",
@@ -92,18 +88,7 @@ fn resolve_player_id(bank: &mut Bank) -> Result<String, String> {
 		}
 	}
 
-	if let Ok(name) = env::var("POKER_USER") {
-		if bank.profile_exists(&name) {
-			return Ok(name);
-		} else {
-			return Err(format!(
-				"POKER_USER='{}' not found in profiles.toml. Use 'poker register {}' to create.",
-				name, name
-			));
-		}
-	}
-
-	Err("No player specified. Use --player <n> or set POKER_USER environment variable.".to_string())
+	Err("No player specified. Use --player <name> or set POKER_USER environment variable.".to_string())
 }
 
 enum InputMode {
@@ -424,13 +409,27 @@ fn interruptible_sleep(duration: Duration) -> io::Result<bool> {
 }
 
 fn main() -> io::Result<()> {
+	let args = Args::parse();
+
+	if args.list_themes {
+		list_themes();
+		return Ok(());
+	}
+
+	let theme = Theme::load(args.theme.as_deref());
+	let bank = Bank::load().map_err(|e| io::Error::new(io::ErrorKind::Other, e))?;
+
+	let host_id = resolve_player_id(args.player.as_deref(), &bank).map_err(|e| {
+		io::Error::new(io::ErrorKind::InvalidInput, e)
+	})?;
+
 	enable_raw_mode()?;
 	let mut stdout = stdout();
 	execute!(stdout, EnterAlternateScreen)?;
 	let backend = CrosstermBackend::new(stdout);
 	let mut terminal = Terminal::new(backend)?;
 
-	let result = run_app(&mut terminal);
+	let result = run_app(&mut terminal, theme, host_id);
 
 	disable_raw_mode()?;
 	execute!(terminal.backend_mut(), LeaveAlternateScreen)?;
@@ -442,16 +441,14 @@ fn main() -> io::Result<()> {
 	Ok(())
 }
 
-fn run_app(terminal: &mut Terminal<CrosstermBackend<io::Stdout>>) -> io::Result<()> {
-	let theme = Theme::load(parse_theme_arg().as_deref());
-
+fn run_app(
+	terminal: &mut Terminal<CrosstermBackend<io::Stdout>>,
+	theme: Theme,
+	host_id: String,
+) -> io::Result<()> {
 	let tables = load_tables().unwrap_or_default();
-	let mut bank = Bank::load().map_err(|e| io::Error::new(io::ErrorKind::Other, e))?;
+	let bank = Bank::load().map_err(|e| io::Error::new(io::ErrorKind::Other, e))?;
 	let roster = load_players_auto().unwrap_or_default();
-
-	let host_id = resolve_player_id(&mut bank).map_err(|e| {
-		io::Error::new(io::ErrorKind::InvalidInput, e)
-	})?;
 
 	let mut menu = Menu::new(tables, bank, host_id.clone(), roster, theme.clone());
 

@@ -2,7 +2,7 @@
 name = "poker-tui"
 version = "0.1.0"
 edition = "2024"
-repository = "https://github.com/myersm0/poker-terminal"
+repository = "https://github.com/myersm0/transparent-poker"
 
 [[bin]]
 name = "tui-demo"
@@ -21,6 +21,7 @@ name = "ai-game"
 path = "src/bin/ai_game.rs"
 
 [dependencies]
+clap = { version = "4.4", features = ["derive", "env"] }
 ratatui = "0.29"
 crossterm = "0.28"
 serde = { version = "1.0", features = ["derive"] }
