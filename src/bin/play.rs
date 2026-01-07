@@ -25,6 +25,7 @@ use poker_tui::logging::{self, tui as log};
 use poker_tui::menu::{LobbyPlayer, Menu, MenuResult};
 use poker_tui::players::{ActionRequest, PlayerResponse, RulesPlayer, TerminalPlayer};
 use poker_tui::table::{load_tables, BlindClock, GameFormat, TableConfig};
+use poker_tui::theme::Theme;
 use poker_tui::tui::TableWidget;
 use poker_tui::view::TableView;
 
@@ -121,6 +122,7 @@ struct App {
 	human_seat: Seat,
 	final_standings: Vec<Standing>,
 	quit_pending: bool,
+	theme: Theme,
 }
 
 impl App {
@@ -135,6 +137,7 @@ impl App {
 			human_seat,
 			final_standings: Vec::new(),
 			quit_pending: false,
+			theme: Theme::load(),
 		}
 	}
 
@@ -677,7 +680,7 @@ fn draw_ui(frame: &mut Frame, app: &App) {
 	let winner_area = layout[1];
 	let status_area = layout[2];
 
-	let table_widget = TableWidget::new(&app.table_view);
+	let table_widget = TableWidget::new(&app.table_view, &app.theme);
 	frame.render_widget(table_widget, table_area);
 
 	let winner_text = if app.last_winners.is_empty() {

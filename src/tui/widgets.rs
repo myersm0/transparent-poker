@@ -3,47 +3,49 @@ use ratatui::{
 	layout::Rect,
 	style::{Color, Modifier, Style},
 	text::{Line, Span},
-	widgets::{Block, Borders, Paragraph, Widget},
+	widgets::{Block, BorderType, Borders, Paragraph, Widget},
 };
 
 use crate::view::{Card, ChatMessage, PlayerStatus, PlayerView, Street, TableView};
 use crate::tui::layout::TableLayout;
+use crate::theme::Theme;
 
-fn card_style(suit: char) -> Style {
+fn card_style(suit: char, theme: &Theme) -> Style {
 	match suit {
-		'h' | 'd' => Style::default().fg(Color::Red),
-		_ => Style::default().fg(Color::White),
+		'h' | 'd' => Style::default().fg(theme.red_suit()),
+		_ => Style::default().fg(theme.black_suit()),
 	}
 }
 
-fn render_card(card: &Card) -> Span<'static> {
+fn render_card(card: &Card, theme: &Theme) -> Span<'static> {
 	Span::styled(
 		format!("{}{}", card.rank, card.suit_symbol()),
-		card_style(card.suit),
+		card_style(card.suit, theme),
 	)
 }
 
-fn render_hole_cards(cards: &[Card; 2]) -> Line<'static> {
+fn render_hole_cards(cards: &[Card; 2], theme: &Theme) -> Line<'static> {
 	Line::from(vec![
-		render_card(&cards[0]),
+		render_card(&cards[0], theme),
 		Span::raw(" "),
-		render_card(&cards[1]),
+		render_card(&cards[1], theme),
 	])
 }
 
-fn render_hidden_cards() -> Line<'static> {
-	Line::styled("▓ ▓", Style::default().fg(Color::Blue))
+fn render_hidden_cards(theme: &Theme) -> Line<'static> {
+	Line::styled("▓ ▓", Style::default().fg(theme.hidden_card()))
 }
 
 pub struct PlayerWidget<'a> {
 	player: &'a PlayerView,
+	theme: &'a Theme,
 	show_cards: bool,
 	is_winner: bool,
 }
 
 impl<'a> PlayerWidget<'a> {
-	pub fn new(player: &'a PlayerView, show_cards: bool) -> Self {
-		Self { player, show_cards, is_winner: false }
+	pub fn new(player: &'a PlayerView, theme: &'a Theme, show_cards: bool) -> Self {
+		Self { player, theme, show_cards, is_winner: false }
 	}
 
 	pub fn winner(mut self, is_winner: bool) -> Self {
@@ -54,17 +56,25 @@ impl<'a> PlayerWidget<'a> {
 
 impl Widget for PlayerWidget<'_> {
 	fn render(self, area: Rect, buf: &mut Buffer) {
-		let border_style = if self.is_winner {
-			Style::default().fg(Color::Green).add_modifier(Modifier::BOLD)
+		let (border_color, border_type) = if self.is_winner {
+			(self.theme.winner_border(), BorderType::Plain)
 		} else if self.player.is_actor {
-			Style::default().fg(Color::Yellow).add_modifier(Modifier::BOLD)
+			(self.theme.actor_border(), BorderType::Plain)
+		} else if self.player.is_hero {
+			(self.theme.hero_border(), self.theme.hero_border_type())
 		} else {
 			match self.player.status {
-				PlayerStatus::Folded => Style::default().fg(Color::DarkGray),
-				PlayerStatus::AllIn => Style::default().fg(Color::Magenta),
-				PlayerStatus::Eliminated => Style::default().fg(Color::Red),
-				_ => Style::default().fg(Color::White),
+				PlayerStatus::Folded => (self.theme.folded_border(), BorderType::Plain),
+				PlayerStatus::AllIn => (self.theme.all_in_border(), BorderType::Plain),
+				PlayerStatus::Eliminated => (self.theme.eliminated_border(), BorderType::Plain),
+				_ => (self.theme.default_border(), BorderType::Plain),
 			}
+		};
+
+		let border_style = if self.is_winner || self.player.is_actor {
+			Style::default().fg(border_color).add_modifier(Modifier::BOLD)
+		} else {
+			Style::default().fg(border_color)
 		};
 
 		let name_display = if self.player.name.len() > 12 {
@@ -74,15 +84,16 @@ impl Widget for PlayerWidget<'_> {
 		};
 
 		let title_style = if self.is_winner {
-			Style::default().fg(Color::Green).add_modifier(Modifier::BOLD)
+			Style::default().fg(self.theme.winner_name()).add_modifier(Modifier::BOLD)
 		} else if self.player.is_actor {
-			Style::default().fg(Color::Yellow).add_modifier(Modifier::BOLD)
+			Style::default().fg(self.theme.actor_name()).add_modifier(Modifier::BOLD)
 		} else {
 			Style::default()
 		};
 
 		let mut block = Block::default()
 			.borders(Borders::ALL)
+			.border_type(border_type)
 			.border_style(border_style)
 			.title(Span::styled(name_display, title_style));
 
@@ -98,7 +109,7 @@ impl Widget for PlayerWidget<'_> {
 			block = block.title_top(
 				Line::from(Span::styled(
 					"★",
-					Style::default().fg(Color::Cyan),
+					Style::default().fg(self.theme.hero_border()),
 				))
 				.left_aligned()
 			);
@@ -124,17 +135,17 @@ impl Widget for PlayerWidget<'_> {
 		}
 
 		let cards_line = if self.player.status == PlayerStatus::Folded {
-			Line::styled("folded", Style::default().fg(Color::DarkGray))
+			Line::styled("folded", Style::default().fg(self.theme.folded_text()))
 		} else if self.player.status == PlayerStatus::Eliminated {
-			Line::styled("out", Style::default().fg(Color::Red))
+			Line::styled("out", Style::default().fg(self.theme.eliminated_text()))
 		} else if let Some(ref cards) = self.player.hole_cards {
 			if self.show_cards || self.player.is_hero {
-				render_hole_cards(cards)
+				render_hole_cards(cards, self.theme)
 			} else {
-				render_hidden_cards()
+				render_hidden_cards(self.theme)
 			}
 		} else {
-			render_hidden_cards()
+			render_hidden_cards(self.theme)
 		};
 
 		let stack_str = format!("${:.0}", self.player.stack);
@@ -145,8 +156,8 @@ impl Widget for PlayerWidget<'_> {
 		};
 
 		let mut stack_spans = vec![
-			Span::styled(stack_str, Style::default().fg(Color::Green)),
-			Span::styled(bet_str, Style::default().fg(Color::Yellow)),
+			Span::styled(stack_str, Style::default().fg(self.theme.stack())),
+			Span::styled(bet_str, Style::default().fg(self.theme.bet())),
 		];
 
 		if self.player.position == crate::view::Position::SmallBlind {
@@ -164,11 +175,12 @@ impl Widget for PlayerWidget<'_> {
 
 pub struct BoardWidget<'a> {
 	board: &'a [Card],
+	theme: &'a Theme,
 }
 
 impl<'a> BoardWidget<'a> {
-	pub fn new(board: &'a [Card], _street: Street) -> Self {
-		Self { board }
+	pub fn new(board: &'a [Card], theme: &'a Theme, _street: Street) -> Self {
+		Self { board, theme }
 	}
 }
 
@@ -183,7 +195,7 @@ impl Widget for BoardWidget<'_> {
 				spans.push(Span::raw("  "));
 			}
 			if let Some(card) = self.board.get(i) {
-				spans.push(render_card(card));
+				spans.push(render_card(card, self.theme));
 			} else {
 				spans.push(Span::styled("--", Style::default().fg(Color::DarkGray)));
 			}
@@ -199,13 +211,15 @@ impl Widget for BoardWidget<'_> {
 
 pub struct TableWidget<'a> {
 	view: &'a TableView,
+	theme: &'a Theme,
 	show_all_cards: bool,
 }
 
 impl<'a> TableWidget<'a> {
-	pub fn new(view: &'a TableView) -> Self {
+	pub fn new(view: &'a TableView, theme: &'a Theme) -> Self {
 		Self {
 			view,
+			theme,
 			show_all_cards: view.street == Street::Showdown,
 		}
 	}
@@ -235,7 +249,7 @@ impl Widget for TableWidget<'_> {
 
 		let outer_block = Block::default()
 			.borders(Borders::ALL)
-			.border_style(Style::default().fg(Color::Green))
+			.border_style(Style::default().fg(self.theme.table_border()))
 			.title(title)
 			.title_bottom(format!(
 				" Blinds ${:.0}/${:.0} ",
@@ -250,7 +264,7 @@ impl Widget for TableWidget<'_> {
 		for (i, player) in self.view.players.iter().enumerate() {
 			if let Some(seat_pos) = layout.seats.get(i) {
 				let is_winner = self.view.winner_seats.contains(&player.seat);
-				let widget = PlayerWidget::new(player, self.show_all_cards).winner(is_winner);
+				let widget = PlayerWidget::new(player, self.theme, self.show_all_cards).winner(is_winner);
 				widget.render(seat_pos.rect(), buf);
 
 				if let Some(action) = &player.last_action {
@@ -277,25 +291,26 @@ impl Widget for TableWidget<'_> {
 			}
 		}
 
-		let board_widget = BoardWidget::new(&self.view.board, self.view.street);
+		let board_widget = BoardWidget::new(&self.view.board, self.theme, self.view.street);
 		board_widget.render(layout.board_area, buf);
 
 		let pot_str = format!("Pot: ${:.0}", self.view.pot);
-		let pot_line = Line::styled(pot_str, Style::default().fg(Color::Yellow).add_modifier(Modifier::BOLD));
+		let pot_line = Line::styled(pot_str, Style::default().fg(self.theme.pot()).add_modifier(Modifier::BOLD));
 		Paragraph::new(pot_line).render(layout.pot_area, buf);
 
-		let chat_widget = ChatWidget::new(&self.view.chat_messages);
+		let chat_widget = ChatWidget::new(&self.view.chat_messages, self.theme);
 		chat_widget.render(layout.chat_area, buf);
 	}
 }
 
 pub struct ChatWidget<'a> {
 	messages: &'a [ChatMessage],
+	theme: &'a Theme,
 }
 
 impl<'a> ChatWidget<'a> {
-	pub fn new(messages: &'a [ChatMessage]) -> Self {
-		Self { messages }
+	pub fn new(messages: &'a [ChatMessage], theme: &'a Theme) -> Self {
+		Self { messages, theme }
 	}
 }
 
@@ -303,7 +318,7 @@ impl Widget for ChatWidget<'_> {
 	fn render(self, area: Rect, buf: &mut Buffer) {
 		let block = Block::default()
 			.borders(Borders::ALL)
-			.border_style(Style::default().fg(Color::Blue))
+			.border_style(Style::default().fg(self.theme.chat_border()))
 			.title(" Game Log ");
 
 		let inner = block.inner(area);
@@ -318,13 +333,13 @@ impl Widget for ChatWidget<'_> {
 				if msg.is_system {
 					Line::styled(
 						format!("» {}", msg.text),
-						Style::default().fg(Color::Cyan),
+						Style::default().fg(self.theme.system_message()),
 					)
 				} else {
 					Line::from(vec![
 						Span::styled(
 							format!("{}: ", msg.sender),
-							Style::default().fg(Color::Green),
+							Style::default().fg(self.theme.stack()),
 						),
 						Span::raw(&msg.text),
 					])

@@ -14,5 +14,6 @@ pub mod players;
 pub mod scenario;
 pub mod strategy;
 pub mod table;
+pub mod theme;
 pub mod tui;
 pub mod view;

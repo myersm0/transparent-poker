@@ -7,6 +7,7 @@ use crossterm::{
 use ratatui::{backend::CrosstermBackend, Terminal};
 
 use poker_tui::view::{ActionPrompt, Card, ChatMessage, PlayerStatus, PlayerView, Position, Street, TableView};
+use poker_tui::theme::Theme;
 use poker_tui::tui::TableWidget;
 
 fn main() -> io::Result<()> {
@@ -17,12 +18,13 @@ fn main() -> io::Result<()> {
 	let mut terminal = Terminal::new(backend)?;
 
 	let scenarios = build_scenarios();
+	let theme = Theme::load();
 	let mut current = 0;
 
 	loop {
 		terminal.draw(|frame| {
 			let view = &scenarios[current];
-			let widget = TableWidget::new(view);
+			let widget = TableWidget::new(view, &theme);
 			frame.render_widget(widget, frame.area());
 		})?;
 
