@@ -5,10 +5,6 @@ edition = "2024"
 repository = "https://github.com/myersm0/transparent-poker"
 
 [[bin]]
-name = "tui-demo"
-path = "src/bin/demo.rs"
-
-[[bin]]
 name = "headless"
 path = "src/bin/headless.rs"
 
