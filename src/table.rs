@@ -89,6 +89,13 @@ pub struct TableConfig {
 	pub action_timeout_seconds: Option<u32>,
 	#[serde(default)]
 	pub max_consecutive_timeouts: Option<u32>,
+
+	#[serde(default = "default_action_delay")]
+	pub action_delay_ms: u64,
+	#[serde(default = "default_street_delay")]
+	pub street_delay_ms: u64,
+	#[serde(default = "default_hand_end_delay")]
+	pub hand_end_delay_ms: u64,
 }
 
 fn default_min_players() -> usize {
@@ -101,6 +108,18 @@ fn default_max_players() -> usize {
 
 fn default_max_raises() -> u32 {
 	4
+}
+
+fn default_action_delay() -> u64 {
+	500
+}
+
+fn default_street_delay() -> u64 {
+	700
+}
+
+fn default_hand_end_delay() -> u64 {
+	2000
 }
 
 impl TableConfig {
@@ -212,6 +231,9 @@ fn default_tables() -> Vec<TableConfig> {
 			no_flop_no_drop: false,
 			action_timeout_seconds: None,
 			max_consecutive_timeouts: None,
+			action_delay_ms: default_action_delay(),
+			street_delay_ms: default_street_delay(),
+			hand_end_delay_ms: default_hand_end_delay(),
 		},
 		TableConfig {
 			id: "home-sng".to_string(),
@@ -240,6 +262,9 @@ fn default_tables() -> Vec<TableConfig> {
 			no_flop_no_drop: false,
 			action_timeout_seconds: Some(30),
 			max_consecutive_timeouts: Some(3),
+			action_delay_ms: default_action_delay(),
+			street_delay_ms: default_street_delay(),
+			hand_end_delay_ms: default_hand_end_delay(),
 		},
 	]
 }
@@ -421,6 +446,9 @@ mod tests {
 			no_flop_no_drop: false,
 			action_timeout_seconds: None,
 			max_consecutive_timeouts: None,
+			action_delay_ms: 500,
+			street_delay_ms: 700,
+			hand_end_delay_ms: 2000,
 		};
 		assert_eq!(config.current_blinds(), (5.0, 10.0));
 	}
@@ -450,6 +478,9 @@ mod tests {
 			no_flop_no_drop: false,
 			action_timeout_seconds: None,
 			max_consecutive_timeouts: None,
+			action_delay_ms: 500,
+			street_delay_ms: 700,
+			hand_end_delay_ms: 2000,
 		};
 		assert_eq!(config.current_blinds(), (15.0, 30.0));
 	}
@@ -477,6 +508,9 @@ mod tests {
 			no_flop_no_drop: false,
 			action_timeout_seconds: None,
 			max_consecutive_timeouts: None,
+			action_delay_ms: 500,
+			street_delay_ms: 700,
+			hand_end_delay_ms: 2000,
 		};
 		assert_eq!(cash.effective_buy_in(), 80.0);
 
@@ -501,6 +535,9 @@ mod tests {
 			no_flop_no_drop: false,
 			action_timeout_seconds: None,
 			max_consecutive_timeouts: None,
+			action_delay_ms: 500,
+			street_delay_ms: 700,
+			hand_end_delay_ms: 2000,
 		};
 		assert_eq!(sng.effective_buy_in(), 100.0);
 	}
@@ -528,6 +565,9 @@ mod tests {
 			no_flop_no_drop: false,
 			action_timeout_seconds: None,
 			max_consecutive_timeouts: None,
+			action_delay_ms: 500,
+			street_delay_ms: 700,
+			hand_end_delay_ms: 2000,
 		};
 		assert_eq!(config.player_range(), "2-6 players");
 

@@ -28,10 +28,24 @@ use poker_tui::table::{load_tables, BlindClock, GameFormat, TableConfig};
 use poker_tui::tui::TableWidget;
 use poker_tui::view::TableView;
 
-const ACTION_DELAY_MS: u64 = 500;
-const STREET_DELAY_MS: u64 = 700;
-const HAND_END_DELAY_MS: u64 = 2000;
 const WINNER_HIGHLIGHT_MS: u64 = 2000;
+
+#[derive(Clone, Copy)]
+struct DelayConfig {
+	action_ms: u64,
+	street_ms: u64,
+	hand_end_ms: u64,
+}
+
+impl DelayConfig {
+	fn from_table(table: &TableConfig) -> Self {
+		Self {
+			action_ms: table.action_delay_ms,
+			street_ms: table.street_delay_ms,
+			hand_end_ms: table.hand_end_delay_ms,
+		}
+	}
+}
 
 fn parse_player_arg() -> Option<String> {
 	let args: Vec<String> = env::args().collect();
@@ -106,6 +120,7 @@ struct App {
 	last_winners: Vec<WinnerInfo>,
 	human_seat: Seat,
 	final_standings: Vec<Standing>,
+	quit_pending: bool,
 }
 
 impl App {
@@ -119,6 +134,7 @@ impl App {
 			last_winners: Vec::new(),
 			human_seat,
 			final_standings: Vec::new(),
+			quit_pending: false,
 		}
 	}
 
@@ -370,6 +386,24 @@ fn flush_keyboard_buffer() {
 	}
 }
 
+fn interruptible_sleep(duration: Duration) -> io::Result<bool> {
+	let deadline = Instant::now() + duration;
+	while Instant::now() < deadline {
+		let remaining = deadline.saturating_duration_since(Instant::now());
+		let poll_time = remaining.min(Duration::from_millis(50));
+		if event::poll(poll_time)? {
+			if let Event::Key(key) = event::read()? {
+				if key.kind == KeyEventKind::Press
+					&& (key.code == KeyCode::Char('q') || key.code == KeyCode::Esc)
+				{
+					return Ok(true);
+				}
+			}
+		}
+	}
+	Ok(false)
+}
+
 fn main() -> io::Result<()> {
 	enable_raw_mode()?;
 	let mut stdout = stdout();
@@ -520,6 +554,7 @@ fn run_game(
 
 	let table_info = format!("{} {}", table.betting, table.format);
 	let mut app = App::new(human_seat, table.name.clone(), table_info);
+	let delays = DelayConfig::from_table(&table);
 	log::event("game started");
 
 	loop {
@@ -554,12 +589,14 @@ fn run_game(
 
 		match game_handle.event_rx.recv_timeout(Duration::from_millis(50)) {
 			Ok(event) => {
+				app.quit_pending = false;
+
 				let is_human_turn = matches!(
 					&event,
 					GameEvent::ActionRequest { seat, .. } if seat.0 == app.human_seat.0
 				);
 
-				let delay_ms = get_event_delay(&event, app.human_seat);
+				let delay_ms = get_event_delay(&event, app.human_seat, delays);
 
 				app.apply_event(&event);
 
@@ -574,7 +611,14 @@ fn run_game(
 						}
 					}
 				} else if delay_ms > 0 {
-					std::thread::sleep(Duration::from_millis(delay_ms));
+					if interruptible_sleep(Duration::from_millis(delay_ms))? {
+						if app.quit_pending {
+							log::event("user confirmed quit during delay");
+							break;
+						} else {
+							app.quit_pending = true;
+						}
+					}
 				}
 			}
 			Err(mpsc::RecvTimeoutError::Timeout) => {
@@ -582,8 +626,14 @@ fn run_game(
 					if let Event::Key(key) = event::read()? {
 						if key.kind == KeyEventKind::Press {
 							if key.code == KeyCode::Char('q') || key.code == KeyCode::Esc {
-								log::event("user quit while watching");
-								break;
+								if app.quit_pending {
+									log::event("user confirmed quit while watching");
+									break;
+								} else {
+									app.quit_pending = true;
+								}
+							} else {
+								app.quit_pending = false;
 							}
 						}
 					}
@@ -599,14 +649,14 @@ fn run_game(
 	Ok(app.final_standings)
 }
 
-fn get_event_delay(event: &GameEvent, human_seat: Seat) -> u64 {
+fn get_event_delay(event: &GameEvent, human_seat: Seat, delays: DelayConfig) -> u64 {
 	match event {
 		GameEvent::ActionRequest { seat, .. } => {
 			if seat.0 == human_seat.0 { 0 } else { 0 }
 		}
-		GameEvent::ActionTaken { .. } => ACTION_DELAY_MS,
-		GameEvent::StreetChanged { .. } => STREET_DELAY_MS,
-		GameEvent::HandEnded { .. } => HAND_END_DELAY_MS,
+		GameEvent::ActionTaken { .. } => delays.action_ms,
+		GameEvent::StreetChanged { .. } => delays.street_ms,
+		GameEvent::HandEnded { .. } => delays.hand_end_ms,
 		_ => 0,
 	}
 }
@@ -679,12 +729,23 @@ fn draw_ui(frame: &mut Frame, app: &App) {
 			Style::default().fg(Color::Green).add_modifier(Modifier::BOLD),
 			Style::default().fg(Color::Green),
 		),
-		InputMode::Watching => (
-			"[q] quit".to_string(),
-			" Status ",
-			Style::default().fg(Color::DarkGray),
-			Style::default().fg(Color::DarkGray),
-		),
+		InputMode::Watching => {
+			if app.quit_pending {
+				(
+					"Press 'q' again to quit, any other key to cancel".to_string(),
+					" Quit? ",
+					Style::default().fg(Color::Red).add_modifier(Modifier::BOLD),
+					Style::default().fg(Color::Red),
+				)
+			} else {
+				(
+					"[q] quit".to_string(),
+					" Status ",
+					Style::default().fg(Color::DarkGray),
+					Style::default().fg(Color::DarkGray),
+				)
+			}
+		}
 	};
 
 	let status = Paragraph::new(status_text)
