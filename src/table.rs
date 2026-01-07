@@ -96,6 +96,9 @@ pub struct TableConfig {
 	pub street_delay_ms: u64,
 	#[serde(default = "default_hand_end_delay")]
 	pub hand_end_delay_ms: u64,
+
+	#[serde(default)]
+	pub seed: Option<u64>,
 }
 
 fn default_min_players() -> usize {
@@ -234,6 +237,7 @@ fn default_tables() -> Vec<TableConfig> {
 			action_delay_ms: default_action_delay(),
 			street_delay_ms: default_street_delay(),
 			hand_end_delay_ms: default_hand_end_delay(),
+			seed: None,
 		},
 		TableConfig {
 			id: "home-sng".to_string(),
@@ -265,6 +269,7 @@ fn default_tables() -> Vec<TableConfig> {
 			action_delay_ms: default_action_delay(),
 			street_delay_ms: default_street_delay(),
 			hand_end_delay_ms: default_hand_end_delay(),
+			seed: None,
 		},
 	]
 }
@@ -449,6 +454,7 @@ mod tests {
 			action_delay_ms: 500,
 			street_delay_ms: 700,
 			hand_end_delay_ms: 2000,
+			seed: None,
 		};
 		assert_eq!(config.current_blinds(), (5.0, 10.0));
 	}
@@ -481,6 +487,7 @@ mod tests {
 			action_delay_ms: 500,
 			street_delay_ms: 700,
 			hand_end_delay_ms: 2000,
+			seed: None,
 		};
 		assert_eq!(config.current_blinds(), (15.0, 30.0));
 	}
@@ -511,6 +518,7 @@ mod tests {
 			action_delay_ms: 500,
 			street_delay_ms: 700,
 			hand_end_delay_ms: 2000,
+			seed: None,
 		};
 		assert_eq!(cash.effective_buy_in(), 80.0);
 
@@ -538,6 +546,7 @@ mod tests {
 			action_delay_ms: 500,
 			street_delay_ms: 700,
 			hand_end_delay_ms: 2000,
+			seed: None,
 		};
 		assert_eq!(sng.effective_buy_in(), 100.0);
 	}
@@ -568,6 +577,7 @@ mod tests {
 			action_delay_ms: 500,
 			street_delay_ms: 700,
 			hand_end_delay_ms: 2000,
+			seed: None,
 		};
 		assert_eq!(config.player_range(), "2-6 players");
 

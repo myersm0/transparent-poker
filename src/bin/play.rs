@@ -43,6 +43,10 @@ struct Args {
 	theme: Option<String>,
 
 	#[arg(long)]
+	#[arg(help = "RNG seed for reproducible games (overrides table seed)")]
+	seed: Option<u64>,
+
+	#[arg(long)]
 	#[arg(help = "List available themes and exit")]
 	list_themes: bool,
 }
@@ -429,7 +433,7 @@ fn main() -> io::Result<()> {
 	let backend = CrosstermBackend::new(stdout);
 	let mut terminal = Terminal::new(backend)?;
 
-	let result = run_app(&mut terminal, theme, host_id);
+	let result = run_app(&mut terminal, theme, host_id, args.seed);
 
 	disable_raw_mode()?;
 	execute!(terminal.backend_mut(), LeaveAlternateScreen)?;
@@ -445,6 +449,7 @@ fn run_app(
 	terminal: &mut Terminal<CrosstermBackend<io::Stdout>>,
 	theme: Theme,
 	host_id: String,
+	cli_seed: Option<u64>,
 ) -> io::Result<()> {
 	let tables = load_tables().unwrap_or_default();
 	let bank = Bank::load().map_err(|e| io::Error::new(io::ErrorKind::Other, e))?;
@@ -456,7 +461,7 @@ fn run_app(
 		MenuResult::Quit => return Ok(()),
 		MenuResult::StartGame { table, players } => {
 			let mut bank = Bank::load().map_err(|e| io::Error::new(io::ErrorKind::Other, e))?;
-			let standings = run_game(terminal, table.clone(), players, &mut bank, &host_id, theme)?;
+			let standings = run_game(terminal, table.clone(), players, &mut bank, &host_id, theme, cli_seed)?;
 
 			match table.format {
 				GameFormat::Cash => {
@@ -492,6 +497,7 @@ fn run_game(
 	bank: &mut Bank,
 	_host_id: &str,
 	theme: Theme,
+	cli_seed: Option<u64>,
 ) -> io::Result<Vec<Standing>> {
 	let (small_blind, big_blind) = table.current_blinds();
 	let starting_stack = table.effective_starting_stack();
@@ -510,6 +516,11 @@ fn run_game(
 		poker_tui::table::BettingStructure::FixedLimit => BettingStructure::FixedLimit,
 	};
 
+	let seed = cli_seed.or(table.seed);
+	if let Some(s) = seed {
+		logging::log("Engine", "SEED", &format!("{}", s));
+	}
+
 	let config = RunnerConfig {
 		small_blind,
 		big_blind,
@@ -521,13 +532,19 @@ fn run_game(
 		rake_cap: table.rake_cap,
 		no_flop_no_drop: table.no_flop_no_drop,
 		max_hands: None,
-		seed: None,
+		seed,
 	};
 
 	let (mut runner, game_handle) = GameRunner::new(config);
 
 	let mut shuffled_players = lobby_players.clone();
-	shuffled_players.shuffle(&mut rand::rng());
+	if let Some(s) = seed {
+		use rand::SeedableRng;
+		let mut rng = rand::rngs::StdRng::seed_from_u64(s);
+		shuffled_players.shuffle(&mut rng);
+	} else {
+		shuffled_players.shuffle(&mut rand::rng());
+	}
 
 	let seating_log: Vec<String> = shuffled_players
 		.iter()
