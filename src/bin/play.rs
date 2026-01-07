@@ -452,7 +452,6 @@ fn run_app(terminal: &mut Terminal<CrosstermBackend<io::Stdout>>) -> io::Result<
 	let host_id = resolve_player_id(&mut bank).map_err(|e| {
 		io::Error::new(io::ErrorKind::InvalidInput, e)
 	})?;
-	bank.set_host(&host_id, true);
 
 	let mut menu = Menu::new(tables, bank, host_id.clone(), roster, theme.clone());
 

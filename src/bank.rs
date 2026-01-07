@@ -8,10 +8,6 @@ use crate::logging;
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct PlayerProfile {
 	pub bankroll: f32,
-	#[serde(default)]
-	pub is_host: bool,
-	#[serde(default)]
-	pub strategy: Option<String>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -94,8 +90,6 @@ impl Bank {
 	pub fn get(&self, id: &str) -> PlayerProfile {
 		self.profiles.get(id).cloned().unwrap_or(PlayerProfile {
 			bankroll: self.default_bankroll,
-			is_host: false,
-			strategy: None,
 		})
 	}
 
@@ -112,8 +106,6 @@ impl Bank {
 				id.to_string(),
 				PlayerProfile {
 					bankroll: self.default_bankroll,
-					is_host: false,
-					strategy: None,
 				},
 			);
 		}
@@ -157,15 +149,6 @@ impl Bank {
 	pub fn award_prize(&mut self, id: &str, amount: f32, place: usize) {
 		self.credit(id, amount);
 		logging::log("Bank", "PRIZE", &format!("{}: ${:.2} ({})", id, amount, ordinal(place)));
-	}
-
-	pub fn set_host(&mut self, id: &str, is_host: bool) {
-		self.ensure_exists(id);
-		self.profiles.get_mut(id).unwrap().is_host = is_host;
-	}
-
-	pub fn is_host(&self, id: &str) -> bool {
-		self.profiles.get(id).map(|p| p.is_host).unwrap_or(false)
 	}
 
 	pub fn profile_exists(&self, id: &str) -> bool {
@@ -239,8 +222,6 @@ mod tests {
 		let bank = test_bank();
 		let profile = bank.get("unknown_player");
 		assert_eq!(profile.bankroll, 1000.0);
-		assert!(!profile.is_host);
-		assert!(profile.strategy.is_none());
 	}
 
 	#[test]
@@ -289,16 +270,6 @@ mod tests {
 		let mut bank = test_bank();
 		bank.award_prize("winner", 1000.0, 1);
 		assert_eq!(bank.get_bankroll("winner"), 2000.0);
-	}
-
-	#[test]
-	fn test_set_and_check_host() {
-		let mut bank = test_bank();
-		assert!(!bank.is_host("alice"));
-		bank.set_host("alice", true);
-		assert!(bank.is_host("alice"));
-		bank.set_host("alice", false);
-		assert!(!bank.is_host("alice"));
 	}
 
 	#[test]
