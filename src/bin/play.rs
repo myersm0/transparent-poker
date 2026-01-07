@@ -28,6 +28,11 @@ use poker_tui::table::{load_tables, BlindClock, GameFormat, TableConfig};
 use poker_tui::tui::TableWidget;
 use poker_tui::view::TableView;
 
+const ACTION_DELAY_MS: u64 = 500;
+const STREET_DELAY_MS: u64 = 700;
+const HAND_END_DELAY_MS: u64 = 2000;
+const WINNER_HIGHLIGHT_MS: u64 = 2000;
+
 fn parse_player_arg() -> Option<String> {
 	let args: Vec<String> = env::args().collect();
 	let mut i = 1;
@@ -67,17 +72,22 @@ fn resolve_player_id(bank: &mut Bank) -> Result<String, String> {
 		}
 	}
 
-	Err("No player specified. Use --player <name> or set POKER_USER environment variable.".to_string())
+	Err("No player specified. Use --player <n> or set POKER_USER environment variable.".to_string())
 }
-
-const SPEED_LEVELS: &[u64] = &[0, 100, 250, 500, 1000, 2000];
-const HAND_END_MULTIPLIER: u64 = 4;
-const MIN_ACTION_DELAY_MS: u64 = 500;
 
 enum InputMode {
 	Watching,
-	SelectingAction { valid: ValidActions, response_tx: mpsc::Sender<PlayerResponse> },
-	EnteringRaise { valid: ValidActions, response_tx: mpsc::Sender<PlayerResponse>, amount: f32, min: f32, max: f32 },
+	AwaitingAction {
+		valid: ValidActions,
+		response_tx: mpsc::Sender<PlayerResponse>,
+	},
+	EnteringRaise {
+		valid: ValidActions,
+		response_tx: mpsc::Sender<PlayerResponse>,
+		amount: f32,
+		min: f32,
+		max: f32,
+	},
 	GameOver,
 }
 
@@ -85,23 +95,17 @@ struct WinnerInfo {
 	seat: Seat,
 	amount: f32,
 	description: Option<String>,
-	highlight_until: Option<Instant>,
+	awarded_at: Instant,
 }
-
-const WINNER_HIGHLIGHT_DURATION_MS: u64 = 2000;
 
 struct App {
 	table_view: TableView,
 	view_updater: ViewUpdater,
 	input_mode: InputMode,
 	status_message: Option<String>,
-	speed_level: usize,
-	delay_until: Option<Instant>,
 	last_winners: Vec<WinnerInfo>,
-	hand_just_ended: bool,
 	human_seat: Seat,
 	final_standings: Vec<Standing>,
-	winner_seats: Vec<usize>,
 }
 
 impl App {
@@ -112,44 +116,10 @@ impl App {
 			view_updater: ViewUpdater::new(Some(human_seat)),
 			input_mode: InputMode::Watching,
 			status_message: None,
-			speed_level: 3,
-			delay_until: None,
 			last_winners: Vec::new(),
-			hand_just_ended: false,
 			human_seat,
 			final_standings: Vec::new(),
-			winner_seats: Vec::new(),
 		}
-	}
-
-	fn action_delay(&self) -> Duration {
-		let base = SPEED_LEVELS[self.speed_level];
-		Duration::from_millis(base.max(MIN_ACTION_DELAY_MS))
-	}
-
-	fn hand_end_delay(&self) -> Duration {
-		let base = SPEED_LEVELS[self.speed_level];
-		Duration::from_millis(base.max(MIN_ACTION_DELAY_MS) * HAND_END_MULTIPLIER)
-	}
-
-	fn set_delay(&mut self, duration: Duration) {
-		if duration.as_millis() > 0 {
-			self.delay_until = Some(Instant::now() + duration);
-		}
-	}
-
-	fn is_delayed(&self) -> bool {
-		self.delay_until.map(|t| Instant::now() < t).unwrap_or(false)
-	}
-
-	fn update_winner_highlights(&mut self) {
-		let now = Instant::now();
-		self.winner_seats.retain(|seat| {
-			self.last_winners.iter().any(|w| {
-				w.seat.0 == *seat && w.highlight_until.map(|t| now < t).unwrap_or(false)
-			})
-		});
-		self.table_view.winner_seats = self.winner_seats.clone();
 	}
 
 	fn apply_event(&mut self, event: &GameEvent) {
@@ -159,35 +129,18 @@ impl App {
 		match event {
 			GameEvent::HandStarted { .. } => {
 				self.last_winners.clear();
-				self.winner_seats.clear();
-				self.hand_just_ended = false;
-			}
-			GameEvent::StreetChanged { .. } => {
-				self.set_delay(self.action_delay());
-			}
-			GameEvent::ActionRequest { seat, .. } => {
-				if seat.0 != self.human_seat.0 {
-					self.set_delay(self.action_delay());
-				}
-			}
-			GameEvent::ActionTaken { .. } => {
-				self.set_delay(self.action_delay());
+				self.table_view.winner_seats.clear();
 			}
 			GameEvent::PotAwarded { seat, amount, hand_description, .. } => {
-				let highlight_until = Some(Instant::now() + Duration::from_millis(WINNER_HIGHLIGHT_DURATION_MS));
 				self.last_winners.push(WinnerInfo {
 					seat: *seat,
 					amount: *amount,
 					description: hand_description.clone(),
-					highlight_until,
+					awarded_at: Instant::now(),
 				});
-				if !self.winner_seats.contains(&seat.0) {
-					self.winner_seats.push(seat.0);
+				if !self.table_view.winner_seats.contains(&seat.0) {
+					self.table_view.winner_seats.push(seat.0);
 				}
-			}
-			GameEvent::HandEnded { .. } => {
-				self.hand_just_ended = true;
-				self.set_delay(self.hand_end_delay());
 			}
 			GameEvent::GameEnded { final_standings, .. } => {
 				self.final_standings = final_standings.clone();
@@ -198,9 +151,19 @@ impl App {
 		}
 	}
 
-	fn start_action_input(&mut self, request: ActionRequest) {
+	fn update_winner_highlights(&mut self) {
+		let now = Instant::now();
+		let highlight_duration = Duration::from_millis(WINNER_HIGHLIGHT_MS);
+		self.table_view.winner_seats = self.last_winners
+			.iter()
+			.filter(|w| now.duration_since(w.awarded_at) < highlight_duration)
+			.map(|w| w.seat.0)
+			.collect();
+	}
+
+	fn enter_action_mode(&mut self, request: ActionRequest) {
 		log::event(&format!(
-			"action_request seat={} can_fold={} can_check={} call={:?}",
+			"entering action mode: seat={} can_fold={} can_check={} call={:?}",
 			request.seat.0,
 			request.valid_actions.can_fold,
 			request.valid_actions.can_check,
@@ -210,7 +173,7 @@ impl App {
 		let prompt = self.build_action_prompt(&request.valid_actions);
 		self.status_message = Some(prompt);
 
-		self.input_mode = InputMode::SelectingAction {
+		self.input_mode = InputMode::AwaitingAction {
 			valid: request.valid_actions,
 			response_tx: request.response_tx,
 		};
@@ -242,68 +205,48 @@ impl App {
 		parts.join("  ")
 	}
 
-	fn speed_status(&self) -> String {
-		let ms = SPEED_LEVELS[self.speed_level].max(MIN_ACTION_DELAY_MS);
-		format!("Speed: {}ms [↑/↓]", ms)
+	fn is_awaiting_input(&self) -> bool {
+		matches!(self.input_mode, InputMode::AwaitingAction { .. } | InputMode::EnteringRaise { .. })
 	}
 
-	fn handle_key(&mut self, key: KeyCode) -> bool {
-		if key == KeyCode::Up && self.speed_level > 0 {
-			self.speed_level -= 1;
-			return false;
-		}
-		if key == KeyCode::Down && self.speed_level < SPEED_LEVELS.len() - 1 {
-			self.speed_level += 1;
-			return false;
-		}
-
+	fn handle_action_key(&mut self, key: KeyCode) -> bool {
 		let mode = std::mem::replace(&mut self.input_mode, InputMode::Watching);
 
 		match mode {
-			InputMode::Watching => {
-				self.input_mode = InputMode::Watching;
-				if key == KeyCode::Char('q') || key == KeyCode::Esc {
-					return true;
-				}
-			}
-			InputMode::SelectingAction { valid, response_tx } => {
+			InputMode::AwaitingAction { valid, response_tx } => {
 				log::input(&format!("{:?}", key));
 				match key {
 					KeyCode::Char('f') => {
 						if valid.can_fold {
 							log::action("FOLD");
 							let _ = response_tx.send(PlayerResponse::Action(PlayerAction::Fold));
-							self.input_mode = InputMode::Watching;
 							self.status_message = None;
 						} else {
 							let prompt = self.build_action_prompt(&valid);
-							self.status_message = Some(format!("Can't fold (no bet). {}", prompt));
-							self.input_mode = InputMode::SelectingAction { valid, response_tx };
+							self.status_message = Some(format!("Can't fold. {}", prompt));
+							self.input_mode = InputMode::AwaitingAction { valid, response_tx };
 						}
 					}
 					KeyCode::Enter => {
 						if valid.can_check {
 							log::action("CHECK");
 							let _ = response_tx.send(PlayerResponse::Action(PlayerAction::Check));
-							self.input_mode = InputMode::Watching;
 							self.status_message = None;
 						} else {
-							self.input_mode = InputMode::SelectingAction { valid, response_tx };
+							self.input_mode = InputMode::AwaitingAction { valid, response_tx };
 						}
 					}
 					KeyCode::Char('c') => {
 						if let Some(amount) = valid.call_amount {
 							log::action(&format!("CALL ${:.0}", amount));
 							let _ = response_tx.send(PlayerResponse::Action(PlayerAction::Call { amount }));
-							self.input_mode = InputMode::Watching;
 							self.status_message = None;
 						} else if valid.can_check {
 							log::action("CHECK");
 							let _ = response_tx.send(PlayerResponse::Action(PlayerAction::Check));
-							self.input_mode = InputMode::Watching;
 							self.status_message = None;
 						} else {
-							self.input_mode = InputMode::SelectingAction { valid, response_tx };
+							self.input_mode = InputMode::AwaitingAction { valid, response_tx };
 						}
 					}
 					KeyCode::Char('b') => {
@@ -317,13 +260,12 @@ impl App {
 								};
 								log::action(&format!("BET ${:.0}", bet_amount));
 								let _ = response_tx.send(PlayerResponse::Action(PlayerAction::Bet { amount: bet_amount }));
-								self.input_mode = InputMode::Watching;
 								self.status_message = None;
 							} else {
-								self.input_mode = InputMode::SelectingAction { valid, response_tx };
+								self.input_mode = InputMode::AwaitingAction { valid, response_tx };
 							}
 						} else {
-							self.input_mode = InputMode::SelectingAction { valid, response_tx };
+							self.input_mode = InputMode::AwaitingAction { valid, response_tx };
 						}
 					}
 					KeyCode::Char('r') => {
@@ -333,8 +275,8 @@ impl App {
 								RaiseOptions::Variable { min_raise, max_raise } => (*min_raise, *max_raise),
 							};
 							self.status_message = Some(format!(
-								"Raise: ${:.0} (min ${:.0}, max ${:.0}) [←/→] adjust [Enter] confirm [Esc] cancel",
-								min, min, max
+								"Raise: ${:.0} [←/→ adjust] [Enter confirm] [Esc cancel]",
+								min
 							));
 							self.input_mode = InputMode::EnteringRaise {
 								valid,
@@ -344,31 +286,36 @@ impl App {
 								max,
 							};
 						} else {
-							self.input_mode = InputMode::SelectingAction { valid, response_tx };
+							self.input_mode = InputMode::AwaitingAction { valid, response_tx };
 						}
 					}
-					KeyCode::Char('a') if valid.can_all_in => {
-						log::action(&format!("ALL-IN ${:.0}", valid.all_in_amount));
-						let _ = response_tx.send(PlayerResponse::Action(PlayerAction::AllIn { amount: valid.all_in_amount }));
-						self.input_mode = InputMode::Watching;
-						self.status_message = None;
+					KeyCode::Char('a') => {
+						if valid.can_all_in {
+							log::action(&format!("ALL-IN ${:.0}", valid.all_in_amount));
+							let _ = response_tx.send(PlayerResponse::Action(PlayerAction::AllIn {
+								amount: valid.all_in_amount,
+							}));
+							self.status_message = None;
+						} else {
+							self.input_mode = InputMode::AwaitingAction { valid, response_tx };
+						}
 					}
 					KeyCode::Char('q') | KeyCode::Esc => {
 						return true;
 					}
 					_ => {
-						self.input_mode = InputMode::SelectingAction { valid, response_tx };
+						self.input_mode = InputMode::AwaitingAction { valid, response_tx };
 					}
 				}
 			}
 			InputMode::EnteringRaise { valid, response_tx, amount, min, max } => {
 				match key {
 					KeyCode::Left => {
-						let step = (max - min) / 10.0;
-						let new_amount = (amount - step.max(1.0)).max(min);
+						let step = ((max - min) / 10.0).max(1.0);
+						let new_amount = (amount - step).max(min);
 						self.status_message = Some(format!(
-							"Raise: ${:.0} (min ${:.0}, max ${:.0}) [←/→] adjust [Enter] confirm [Esc] cancel",
-							new_amount, min, max
+							"Raise: ${:.0} [←/→ adjust] [Enter confirm] [Esc cancel]",
+							new_amount
 						));
 						self.input_mode = InputMode::EnteringRaise {
 							valid,
@@ -379,11 +326,11 @@ impl App {
 						};
 					}
 					KeyCode::Right => {
-						let step = (max - min) / 10.0;
-						let new_amount = (amount + step.max(1.0)).min(max);
+						let step = ((max - min) / 10.0).max(1.0);
+						let new_amount = (amount + step).min(max);
 						self.status_message = Some(format!(
-							"Raise: ${:.0} (min ${:.0}, max ${:.0}) [←/→] adjust [Enter] confirm [Esc] cancel",
-							new_amount, min, max
+							"Raise: ${:.0} [←/→ adjust] [Enter confirm] [Esc cancel]",
+							new_amount
 						));
 						self.input_mode = InputMode::EnteringRaise {
 							valid,
@@ -396,25 +343,22 @@ impl App {
 					KeyCode::Enter => {
 						log::action(&format!("RAISE ${:.0}", amount));
 						let _ = response_tx.send(PlayerResponse::Action(PlayerAction::Raise { amount }));
-						self.input_mode = InputMode::Watching;
 						self.status_message = None;
 					}
 					KeyCode::Esc => {
 						let prompt = self.build_action_prompt(&valid);
 						self.status_message = Some(prompt);
-						self.input_mode = InputMode::SelectingAction { valid, response_tx };
+						self.input_mode = InputMode::AwaitingAction { valid, response_tx };
+					}
+					KeyCode::Char('q') => {
+						return true;
 					}
 					_ => {
 						self.input_mode = InputMode::EnteringRaise { valid, response_tx, amount, min, max };
 					}
 				}
 			}
-			InputMode::GameOver => {
-				self.input_mode = InputMode::GameOver;
-				if key == KeyCode::Char('q') || key == KeyCode::Esc || key == KeyCode::Enter {
-					return true;
-				}
-			}
+			_ => {}
 		}
 		false
 	}
@@ -578,60 +522,93 @@ fn run_game(
 	let mut app = App::new(human_seat, table.name.clone(), table_info);
 	log::event("game started");
 
-	let mut pending_events: Vec<GameEvent> = Vec::new();
-
 	loop {
 		app.update_winner_highlights();
 		terminal.draw(|f| draw_ui(f, &app))?;
 
-		if event::poll(Duration::from_millis(50))? {
+		if app.is_awaiting_input() {
 			if let Event::Key(key) = event::read()? {
 				if key.kind == KeyEventKind::Press {
-					match &app.input_mode {
-						InputMode::Watching | InputMode::GameOver => {
-							if key.code == KeyCode::Char('q') || key.code == KeyCode::Esc {
-								log::event("user quit");
-								break;
-							}
-							if key.code == KeyCode::Up || key.code == KeyCode::Down {
-								app.handle_key(key.code);
-							}
+					if app.handle_action_key(key.code) {
+						log::event("user quit from action");
+						break;
+					}
+				}
+			}
+			continue;
+		}
+
+		if matches!(app.input_mode, InputMode::GameOver) {
+			if event::poll(Duration::from_millis(100))? {
+				if let Event::Key(key) = event::read()? {
+					if key.kind == KeyEventKind::Press {
+						if key.code == KeyCode::Char('q') || key.code == KeyCode::Esc {
+							log::event("user quit from game over");
+							break;
 						}
-						_ => {
-							if app.handle_key(key.code) {
-								log::event("user quit from action");
+					}
+				}
+			}
+			continue;
+		}
+
+		match game_handle.event_rx.recv_timeout(Duration::from_millis(50)) {
+			Ok(event) => {
+				let is_human_turn = matches!(
+					&event,
+					GameEvent::ActionRequest { seat, .. } if seat.0 == app.human_seat.0
+				);
+
+				let delay_ms = get_event_delay(&event, app.human_seat);
+
+				app.apply_event(&event);
+
+				if is_human_turn {
+					match human_handle.action_rx.recv_timeout(Duration::from_millis(100)) {
+						Ok(request) => {
+							flush_keyboard_buffer();
+							app.enter_action_mode(request);
+						}
+						Err(_) => {
+							log::event("failed to receive action request for human turn");
+						}
+					}
+				} else if delay_ms > 0 {
+					std::thread::sleep(Duration::from_millis(delay_ms));
+				}
+			}
+			Err(mpsc::RecvTimeoutError::Timeout) => {
+				if event::poll(Duration::from_millis(0))? {
+					if let Event::Key(key) = event::read()? {
+						if key.kind == KeyEventKind::Press {
+							if key.code == KeyCode::Char('q') || key.code == KeyCode::Esc {
+								log::event("user quit while watching");
 								break;
 							}
 						}
 					}
 				}
 			}
-		}
-
-		while let Ok(event) = game_handle.event_rx.try_recv() {
-			if matches!(event, GameEvent::ActionRequest { .. }) {
-				app.apply_event(&event);
-			} else {
-				pending_events.push(event);
-			}
-		}
-
-		if !app.is_delayed() && !pending_events.is_empty() {
-			let event = pending_events.remove(0);
-			app.apply_event(&event);
-		}
-
-		if !app.is_delayed() {
-			if let Ok(request) = human_handle.action_rx.try_recv() {
-				flush_keyboard_buffer();
-				std::thread::sleep(Duration::from_millis(10));
-				flush_keyboard_buffer();
-				app.start_action_input(request);
+			Err(mpsc::RecvTimeoutError::Disconnected) => {
+				log::event("game engine disconnected");
+				break;
 			}
 		}
 	}
 
 	Ok(app.final_standings)
+}
+
+fn get_event_delay(event: &GameEvent, human_seat: Seat) -> u64 {
+	match event {
+		GameEvent::ActionRequest { seat, .. } => {
+			if seat.0 == human_seat.0 { 0 } else { 0 }
+		}
+		GameEvent::ActionTaken { .. } => ACTION_DELAY_MS,
+		GameEvent::StreetChanged { .. } => STREET_DELAY_MS,
+		GameEvent::HandEnded { .. } => HAND_END_DELAY_MS,
+		_ => 0,
+	}
 }
 
 fn draw_ui(frame: &mut Frame, app: &App) {
@@ -674,7 +651,11 @@ fn draw_ui(frame: &mut Frame, app: &App) {
 			.join(" | ")
 	};
 
-	let winner_style = if app.hand_just_ended {
+	let has_recent_winner = app.last_winners.iter().any(|w| {
+		Instant::now().duration_since(w.awarded_at) < Duration::from_millis(WINNER_HIGHLIGHT_MS)
+	});
+
+	let winner_style = if has_recent_winner {
 		Style::default().fg(Color::Green).add_modifier(Modifier::BOLD)
 	} else {
 		Style::default().fg(Color::DarkGray)
@@ -686,7 +667,7 @@ fn draw_ui(frame: &mut Frame, app: &App) {
 	frame.render_widget(winner, winner_area);
 
 	let (status_text, status_title, status_style, border_style) = match &app.input_mode {
-		InputMode::SelectingAction { .. } | InputMode::EnteringRaise { .. } => (
+		InputMode::AwaitingAction { .. } | InputMode::EnteringRaise { .. } => (
 			app.status_message.clone().unwrap_or_default(),
 			" Your Turn ",
 			Style::default().fg(Color::Yellow).add_modifier(Modifier::BOLD),
@@ -699,7 +680,7 @@ fn draw_ui(frame: &mut Frame, app: &App) {
 			Style::default().fg(Color::Green),
 		),
 		InputMode::Watching => (
-			app.speed_status(),
+			"[q] quit".to_string(),
 			" Status ",
 			Style::default().fg(Color::DarkGray),
 			Style::default().fg(Color::DarkGray),

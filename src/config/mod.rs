@@ -6,7 +6,7 @@ fn config_paths(filename: &str) -> Vec<PathBuf> {
 	let mut paths = Vec::new();
 
 	if let Some(home) = std::env::var_os("HOME") {
-		let user_config = PathBuf::from(home).join(".config/poker-tables").join(filename);
+		let user_config = PathBuf::from(home).join(".config/poker-terminal").join(filename);
 		paths.push(user_config);
 	}
 
