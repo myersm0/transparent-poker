@@ -39,6 +39,7 @@ pub struct Theme {
 
 	pub table_border_color: String,
 	pub chat_border_color: String,
+	pub chat_text_color: String,
 	pub system_message_color: String,
 
 	pub menu_border_color: String,
@@ -95,6 +96,7 @@ impl Default for Theme {
 
 			table_border_color: "#00D700".to_string(),
 			chat_border_color: "#0087D7".to_string(),
+			chat_text_color: "#B0B0B0".to_string(),
 			system_message_color: "#00D7D7".to_string(),
 
 			menu_border_color: "#00D700".to_string(),
@@ -242,6 +244,10 @@ impl Theme {
 
 	pub fn chat_border(&self) -> Color {
 		parse_color(&self.chat_border_color)
+	}
+
+	pub fn chat_text(&self) -> Color {
+		parse_color(&self.chat_text_color)
 	}
 
 	pub fn system_message(&self) -> Color {

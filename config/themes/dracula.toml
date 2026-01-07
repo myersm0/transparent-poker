@@ -32,6 +32,7 @@ hidden_card_color = "#BD93F9"
 
 table_border_color = "#50FA7B"
 chat_border_color = "#BD93F9"
+chat_text_color = "#F8F8F2"
 system_message_color = "#8BE9FD"
 
 menu_border_color = "#BD93F9"

@@ -341,7 +341,7 @@ impl Widget for ChatWidget<'_> {
 							format!("{}: ", msg.sender),
 							Style::default().fg(self.theme.stack()),
 						),
-						Span::raw(&msg.text),
+						Span::styled(&msg.text, Style::default().fg(self.theme.chat_text())),
 					])
 				}
 			})

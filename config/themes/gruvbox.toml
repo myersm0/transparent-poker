@@ -1,0 +1,55 @@
+# Gruvbox Dark Theme
+# https://github.com/morhetz/gruvbox
+
+background_color = "#282828"
+
+hero_border_style = "double"
+hero_border_color = "#83A598"
+
+actor_border_color = "#FABD2F"
+actor_name_color = "#FABD2F"
+
+folded_border_color = "#928374"
+folded_text_color = "#928374"
+
+eliminated_border_color = "#504945"
+eliminated_text_color = "#665C54"
+
+all_in_border_color = "#D3869B"
+
+winner_border_color = "#B8BB26"
+winner_name_color = "#B8BB26"
+
+default_border_color = "#EBDBB2"
+
+stack_color = "#B8BB26"
+bet_color = "#FABD2F"
+pot_color = "#FE8019"
+
+red_suit_color = "#FB4934"
+black_suit_color = "#EBDBB2"
+hidden_card_color = "#83A598"
+
+table_border_color = "#B8BB26"
+chat_border_color = "#83A598"
+chat_text_color = "#EBDBB2"
+system_message_color = "#8EC07C"
+
+menu_border_color = "#FE8019"
+menu_title_color = "#EBDBB2"
+menu_text_color = "#EBDBB2"
+menu_selected_color = "#282828"
+menu_selected_bg = "#FABD2F"
+menu_unselected_color = "#928374"
+menu_host_marker_color = "#83A598"
+menu_ai_marker_color = "#D3869B"
+menu_highlight_color = "#8EC07C"
+
+status_watching_color = "#928374"
+status_watching_border = "#928374"
+status_your_turn_color = "#FABD2F"
+status_your_turn_border = "#FABD2F"
+status_quit_color = "#FB4934"
+status_quit_border = "#FB4934"
+status_game_over_color = "#B8BB26"
+status_game_over_border = "#B8BB26"

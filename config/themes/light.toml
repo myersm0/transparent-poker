@@ -1,6 +1,8 @@
 # Light Theme
 # For light terminal backgrounds
 
+background_color = "#FAFAFA"
+
 hero_border_style = "double"
 hero_border_color = "#0087AF"
 
@@ -30,6 +32,7 @@ hidden_card_color = "#005FAF"
 
 table_border_color = "#008700"
 chat_border_color = "#005FAF"
+chat_text_color = "#4A4A4A"
 system_message_color = "#0087AF"
 
 menu_border_color = "#008700"

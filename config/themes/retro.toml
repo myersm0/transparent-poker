@@ -1,0 +1,55 @@
+# Monokai Theme
+# Classic coding color scheme
+
+background_color = "#272822"
+
+hero_border_style = "double"
+hero_border_color = "#66D9EF"
+
+actor_border_color = "#E6DB74"
+actor_name_color = "#E6DB74"
+
+folded_border_color = "#75715E"
+folded_text_color = "#75715E"
+
+eliminated_border_color = "#49483E"
+eliminated_text_color = "#49483E"
+
+all_in_border_color = "#AE81FF"
+
+winner_border_color = "#A6E22E"
+winner_name_color = "#A6E22E"
+
+default_border_color = "#F8F8F2"
+
+stack_color = "#A6E22E"
+bet_color = "#E6DB74"
+pot_color = "#FD971F"
+
+red_suit_color = "#F92672"
+black_suit_color = "#F8F8F2"
+hidden_card_color = "#66D9EF"
+
+table_border_color = "#A6E22E"
+chat_border_color = "#66D9EF"
+chat_text_color = "#F8F8F2"
+system_message_color = "#66D9EF"
+
+menu_border_color = "#AE81FF"
+menu_title_color = "#F8F8F2"
+menu_text_color = "#F8F8F2"
+menu_selected_color = "#272822"
+menu_selected_bg = "#F92672"
+menu_unselected_color = "#75715E"
+menu_host_marker_color = "#66D9EF"
+menu_ai_marker_color = "#AE81FF"
+menu_highlight_color = "#66D9EF"
+
+status_watching_color = "#75715E"
+status_watching_border = "#75715E"
+status_your_turn_color = "#E6DB74"
+status_your_turn_border = "#E6DB74"
+status_quit_color = "#F92672"
+status_quit_border = "#F92672"
+status_game_over_color = "#A6E22E"
+status_game_over_border = "#A6E22E"

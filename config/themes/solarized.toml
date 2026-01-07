@@ -1,6 +1,8 @@
 # Solarized Dark Theme
 # https://ethanschoonover.com/solarized/
 
+background_color = "#002B36"
+
 hero_border_style = "double"
 hero_border_color = "#2AA198"
 
@@ -30,6 +32,7 @@ hidden_card_color = "#268BD2"
 
 table_border_color = "#859900"
 chat_border_color = "#268BD2"
+chat_text_color = "#839496"
 system_message_color = "#2AA198"
 
 menu_border_color = "#268BD2"

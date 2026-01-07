@@ -1,0 +1,55 @@
+# Nord Theme
+# https://www.nordtheme.com/
+
+background_color = "#2E3440"
+
+hero_border_style = "double"
+hero_border_color = "#88C0D0"
+
+actor_border_color = "#EBCB8B"
+actor_name_color = "#EBCB8B"
+
+folded_border_color = "#4C566A"
+folded_text_color = "#4C566A"
+
+eliminated_border_color = "#3B4252"
+eliminated_text_color = "#434C5E"
+
+all_in_border_color = "#B48EAD"
+
+winner_border_color = "#A3BE8C"
+winner_name_color = "#A3BE8C"
+
+default_border_color = "#ECEFF4"
+
+stack_color = "#A3BE8C"
+bet_color = "#EBCB8B"
+pot_color = "#D08770"
+
+red_suit_color = "#BF616A"
+black_suit_color = "#ECEFF4"
+hidden_card_color = "#5E81AC"
+
+table_border_color = "#A3BE8C"
+chat_border_color = "#5E81AC"
+chat_text_color = "#E5E9F0"
+system_message_color = "#88C0D0"
+
+menu_border_color = "#5E81AC"
+menu_title_color = "#ECEFF4"
+menu_text_color = "#E5E9F0"
+menu_selected_color = "#2E3440"
+menu_selected_bg = "#88C0D0"
+menu_unselected_color = "#4C566A"
+menu_host_marker_color = "#88C0D0"
+menu_ai_marker_color = "#B48EAD"
+menu_highlight_color = "#81A1C1"
+
+status_watching_color = "#4C566A"
+status_watching_border = "#4C566A"
+status_your_turn_color = "#EBCB8B"
+status_your_turn_border = "#EBCB8B"
+status_quit_color = "#BF616A"
+status_quit_border = "#BF616A"
+status_game_over_color = "#A3BE8C"
+status_game_over_border = "#A3BE8C"
