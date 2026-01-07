@@ -249,6 +249,9 @@ impl Menu {
 	fn draw_table_select(&self, frame: &mut Frame) {
 		let area = frame.area();
 
+		let bg = Block::default().style(Style::default().bg(self.theme.background()));
+		frame.render_widget(bg, area);
+
 		let chunks = Layout::default()
 			.direction(Direction::Vertical)
 			.constraints([
@@ -312,6 +315,9 @@ impl Menu {
 	fn draw_lobby(&self, frame: &mut Frame) {
 		let area = frame.area();
 		let table = self.selected_table.as_ref().unwrap();
+
+		let bg = Block::default().style(Style::default().bg(self.theme.background()));
+		frame.render_widget(bg, area);
 
 		let chunks = Layout::default()
 			.direction(Direction::Vertical)

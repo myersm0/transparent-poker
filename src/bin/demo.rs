@@ -4,7 +4,12 @@ use crossterm::{
 	terminal::{disable_raw_mode, enable_raw_mode, EnterAlternateScreen, LeaveAlternateScreen},
 	ExecutableCommand,
 };
-use ratatui::{backend::CrosstermBackend, Terminal};
+use ratatui::{
+	backend::CrosstermBackend,
+	style::Style,
+	widgets::Block,
+	Terminal,
+};
 
 use poker_tui::view::{ActionPrompt, Card, ChatMessage, PlayerStatus, PlayerView, Position, Street, TableView};
 use poker_tui::theme::Theme;
@@ -23,9 +28,13 @@ fn main() -> io::Result<()> {
 
 	loop {
 		terminal.draw(|frame| {
+			let area = frame.area();
+			let bg = Block::default().style(Style::default().bg(theme.background()));
+			frame.render_widget(bg, area);
+
 			let view = &scenarios[current];
 			let widget = TableWidget::new(view, &theme);
-			frame.render_widget(widget, frame.area());
+			frame.render_widget(widget, area);
 		})?;
 
 		if event::poll(std::time::Duration::from_millis(100))? {

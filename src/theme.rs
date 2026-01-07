@@ -8,6 +8,8 @@ use serde::{Deserialize, Serialize};
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(default)]
 pub struct Theme {
+	pub background_color: String,
+
 	pub hero_border_style: String,
 	pub hero_border_color: String,
 
@@ -62,6 +64,8 @@ pub struct Theme {
 impl Default for Theme {
 	fn default() -> Self {
 		Self {
+			background_color: "#1A1A1A".to_string(),
+
 			hero_border_style: "double".to_string(),
 			hero_border_color: "#00D7D7".to_string(),
 
@@ -154,6 +158,10 @@ impl Theme {
 			.map_err(|e| format!("Failed to read theme file: {}", e))?;
 		toml::from_str(&contents)
 			.map_err(|e| format!("Failed to parse theme: {}", e))
+	}
+
+	pub fn background(&self) -> Color {
+		parse_color(&self.background_color)
 	}
 
 	pub fn hero_border_type(&self) -> BorderType {

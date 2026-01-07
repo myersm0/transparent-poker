@@ -1,6 +1,8 @@
 # Dracula Theme
 # https://draculatheme.com/
 
+background_color = "#282A36"
+
 hero_border_style = "double"
 hero_border_color = "#8BE9FD"
 

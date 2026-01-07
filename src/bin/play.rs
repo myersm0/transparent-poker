@@ -686,6 +686,9 @@ fn get_event_delay(event: &GameEvent, human_seat: Seat, delays: DelayConfig) -> 
 fn draw_ui(frame: &mut Frame, app: &App) {
 	let area = frame.area();
 
+	let bg = Block::default().style(Style::default().bg(app.theme.background()));
+	frame.render_widget(bg, area);
+
 	let layout = Layout::default()
 		.direction(Direction::Vertical)
 		.constraints([
