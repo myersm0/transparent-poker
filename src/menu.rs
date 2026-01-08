@@ -3,17 +3,63 @@ use std::io;
 use crossterm::event::{self, Event, KeyCode, KeyEventKind};
 use ratatui::{
 	backend::Backend,
-	layout::{Constraint, Direction, Layout},
+	layout::{Constraint, Direction, Layout, Rect},
 	style::{Modifier, Style},
 	text::{Line, Span},
-	widgets::{Block, Borders, List, ListItem, ListState, Paragraph},
+	widgets::{Block, Borders, Clear, List, ListItem, ListState, Paragraph, Wrap},
 	Frame, Terminal,
 };
 
 use crate::bank::Bank;
 use crate::config::PlayerConfig;
-use crate::table::{GameFormat, TableConfig};
+use crate::table::{BettingStructure, GameFormat, TableConfig};
 use crate::theme::Theme;
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub enum SortMode {
+	#[default]
+	Manual,
+	Alpha,
+	Betting,
+	Format,
+	StakesAsc,
+	StakesDesc,
+}
+
+impl SortMode {
+	fn next(self) -> Self {
+		match self {
+			SortMode::Manual => SortMode::Alpha,
+			SortMode::Alpha => SortMode::Format,
+			SortMode::Format => SortMode::Betting,
+			SortMode::Betting => SortMode::StakesAsc,
+			SortMode::StakesAsc => SortMode::StakesDesc,
+			SortMode::StakesDesc => SortMode::Manual,
+		}
+	}
+
+	fn prev(self) -> Self {
+		match self {
+			SortMode::Manual => SortMode::StakesDesc,
+			SortMode::Alpha => SortMode::Manual,
+			SortMode::Format => SortMode::Alpha,
+			SortMode::Betting => SortMode::Format,
+			SortMode::StakesAsc => SortMode::Betting,
+			SortMode::StakesDesc => SortMode::StakesAsc,
+		}
+	}
+
+	fn label(self) -> &'static str {
+		match self {
+			SortMode::Manual => "Manual",
+			SortMode::Alpha => "A-Z",
+			SortMode::Format => "Format (cash game or tournament)",
+			SortMode::Betting => "Betting structure (no limit, pot limit, fixed)",
+			SortMode::StakesAsc => "Minimum buy-in (ascending)",
+			SortMode::StakesDesc => "Minimum buy-in (descending)",
+		}
+	}
+}
 
 #[derive(Debug, Clone)]
 pub struct LobbyPlayer {
@@ -39,6 +85,8 @@ enum MenuState {
 pub struct Menu {
 	state: MenuState,
 	tables: Vec<TableConfig>,
+	sorted_indices: Vec<usize>,
+	sort_mode: SortMode,
 	table_list_state: ListState,
 	bank: Bank,
 	host_id: String,
@@ -48,6 +96,7 @@ pub struct Menu {
 	lobby_players: Vec<LobbyPlayer>,
 	lobby_cursor: usize,
 	theme: Theme,
+	show_info: bool,
 }
 
 impl Menu {
@@ -55,9 +104,13 @@ impl Menu {
 		let mut table_list_state = ListState::default();
 		table_list_state.select(Some(0));
 
+		let sorted_indices: Vec<usize> = (0..tables.len()).collect();
+
 		let mut menu = Self {
 			state: MenuState::TableSelect,
 			tables,
+			sorted_indices,
+			sort_mode: SortMode::Manual,
 			table_list_state,
 			bank,
 			host_id: host_id.clone(),
@@ -66,6 +119,7 @@ impl Menu {
 			lobby_players: Vec::new(),
 			lobby_cursor: 0,
 			theme,
+			show_info: false,
 		};
 
 		menu.lobby_players.push(LobbyPlayer {
@@ -78,6 +132,70 @@ impl Menu {
 		menu
 	}
 
+	fn apply_sort(&mut self) {
+		self.sorted_indices = (0..self.tables.len()).collect();
+
+		match self.sort_mode {
+			SortMode::Manual => {}
+			SortMode::Alpha => {
+				self.sorted_indices.sort_by(|&a, &b| {
+					self.tables[a].name.to_lowercase().cmp(&self.tables[b].name.to_lowercase())
+				});
+			}
+			SortMode::Format => {
+				self.sorted_indices.sort_by(|&a, &b| {
+					let format_ord = |f: GameFormat| match f {
+						GameFormat::Cash => 0,
+						GameFormat::SitNGo => 1,
+					};
+					format_ord(self.tables[a].format).cmp(&format_ord(self.tables[b].format))
+				});
+			}
+			SortMode::Betting => {
+				self.sorted_indices.sort_by(|&a, &b| {
+					let betting_ord = |b: BettingStructure| match b {
+						BettingStructure::NoLimit => 0,
+						BettingStructure::PotLimit => 1,
+						BettingStructure::FixedLimit => 2,
+					};
+					betting_ord(self.tables[a].betting).cmp(&betting_ord(self.tables[b].betting))
+				});
+			}
+			SortMode::StakesAsc => {
+				self.sorted_indices.sort_by(|&a, &b| {
+					let buy_in_a = self.tables[a].effective_buy_in();
+					let buy_in_b = self.tables[b].effective_buy_in();
+					buy_in_a.partial_cmp(&buy_in_b).unwrap_or(std::cmp::Ordering::Equal)
+				});
+			}
+			SortMode::StakesDesc => {
+				self.sorted_indices.sort_by(|&a, &b| {
+					let buy_in_a = self.tables[a].effective_buy_in();
+					let buy_in_b = self.tables[b].effective_buy_in();
+					buy_in_b.partial_cmp(&buy_in_a).unwrap_or(std::cmp::Ordering::Equal)
+				});
+			}
+		}
+
+		self.table_list_state.select(Some(0));
+	}
+
+	fn cycle_sort_next(&mut self) {
+		self.sort_mode = self.sort_mode.next();
+		self.apply_sort();
+	}
+
+	fn cycle_sort_prev(&mut self) {
+		self.sort_mode = self.sort_mode.prev();
+		self.apply_sort();
+	}
+
+	fn selected_table_index(&self) -> Option<usize> {
+		self.table_list_state.selected().and_then(|display_idx| {
+			self.sorted_indices.get(display_idx).copied()
+		})
+	}
+
 	pub fn run<B: Backend>(&mut self, terminal: &mut Terminal<B>) -> io::Result<MenuResult> {
 		loop {
 			terminal.draw(|f| self.draw(f))?;
@@ -85,6 +203,11 @@ impl Menu {
 			if event::poll(std::time::Duration::from_millis(100))? {
 				if let Event::Key(key) = event::read()? {
 					if key.kind != KeyEventKind::Press {
+						continue;
+					}
+
+					if self.show_info {
+						self.show_info = false;
 						continue;
 					}
 
@@ -100,14 +223,21 @@ impl Menu {
 								KeyCode::Down => {
 									self.move_table_selection(1);
 								}
+								KeyCode::Left => {
+									self.cycle_sort_prev();
+								}
+								KeyCode::Right => {
+									self.cycle_sort_next();
+								}
+								KeyCode::Char('i') => {
+									self.show_info = true;
+								}
 								KeyCode::Enter => {
-									if let Some(idx) = self.table_list_state.selected() {
-										if idx < self.tables.len() {
-											self.selected_table = Some(self.tables[idx].clone());
-											self.auto_fill_lobby();
-											self.state = MenuState::Lobby;
-											self.lobby_cursor = self.lobby_players.len();
-										}
+									if let Some(idx) = self.selected_table_index() {
+										self.selected_table = Some(self.tables[idx].clone());
+										self.auto_fill_lobby();
+										self.state = MenuState::Lobby;
+										self.lobby_cursor = self.lobby_players.len();
 									}
 								}
 								_ => {}
@@ -167,7 +297,7 @@ impl Menu {
 	}
 
 	fn move_table_selection(&mut self, delta: i32) {
-		let len = self.tables.len();
+		let len = self.sorted_indices.len();
 		if len == 0 {
 			return;
 		}
@@ -244,6 +374,10 @@ impl Menu {
 			MenuState::TableSelect => self.draw_table_select(frame),
 			MenuState::Lobby => self.draw_lobby(frame),
 		}
+
+		if self.show_info {
+			self.draw_info_popup(frame);
+		}
 	}
 
 	fn draw_table_select(&self, frame: &mut Frame) {
@@ -271,13 +405,22 @@ impl Menu {
 		frame.render_widget(header, chunks[0]);
 
 		let items: Vec<ListItem> = self
-			.tables
+			.sorted_indices
 			.iter()
-			.map(|t| {
+			.map(|&idx| {
+				let t = &self.tables[idx];
+				let format_label = match t.format {
+					GameFormat::Cash => "Cash",
+					GameFormat::SitNGo => "Tournament",
+				};
 				let line = Line::from(vec![
 					Span::styled(
-						format!("{:<25}", t.name),
+						format!("{:<22}", t.name),
 						Style::default().fg(self.theme.menu_text()),
+					),
+					Span::styled(
+						format!("{:<12}", format_label),
+						Style::default().fg(self.theme.menu_unselected()),
 					),
 					Span::styled(
 						format!("{:<18}", t.summary()),
@@ -289,10 +432,11 @@ impl Menu {
 			})
 			.collect();
 
+		let title = format!(" SELECT TABLE (sort: {}) ", self.sort_mode.label());
 		let list = List::new(items)
 			.block(
 				Block::default()
-					.title(" SELECT TABLE ")
+					.title(title)
 					.borders(Borders::ALL)
 					.border_style(Style::default().fg(self.theme.menu_border())),
 			)
@@ -306,7 +450,7 @@ impl Menu {
 
 		frame.render_stateful_widget(list, chunks[1], &mut self.table_list_state.clone());
 
-		let help = Paragraph::new("  [↑/↓] Select  [Enter] Open Lobby  [q] Quit")
+		let help = Paragraph::new("  [↑/↓] Select  [←/→] Sort  [Enter] Open Lobby  [i] Info  [q] Quit")
 			.style(Style::default().fg(self.theme.menu_unselected()))
 			.block(Block::default().borders(Borders::ALL).border_style(Style::default().fg(self.theme.menu_border())));
 		frame.render_widget(help, chunks[2]);
@@ -368,6 +512,39 @@ impl Menu {
 			.style(Style::default().fg(self.theme.menu_unselected()))
 			.block(Block::default().borders(Borders::ALL).border_style(Style::default().fg(self.theme.menu_border())));
 		frame.render_widget(help, chunks[3]);
+	}
+
+	fn draw_info_popup(&self, frame: &mut Frame) {
+		let Some(idx) = self.selected_table_index() else {
+			return;
+		};
+		let table = &self.tables[idx];
+
+		let toml_str = match toml::to_string_pretty(table) {
+			Ok(s) => s,
+			Err(_) => "Failed to serialize table config".to_string(),
+		};
+
+		let area = frame.area();
+		let popup_width = (area.width * 2 / 3).min(60);
+		let popup_height = (area.height * 2 / 3).min(20);
+		let popup_x = (area.width - popup_width) / 2;
+		let popup_y = (area.height - popup_height) / 2;
+		let popup_area = Rect::new(popup_x, popup_y, popup_width, popup_height);
+
+		frame.render_widget(Clear, popup_area);
+
+		let popup = Paragraph::new(toml_str)
+			.style(Style::default().fg(self.theme.menu_text()))
+			.wrap(Wrap { trim: false })
+			.block(
+				Block::default()
+					.title(format!(" {} ", table.name))
+					.borders(Borders::ALL)
+					.border_style(Style::default().fg(self.theme.menu_highlight()))
+					.style(Style::default().bg(self.theme.background())),
+			);
+		frame.render_widget(popup, popup_area);
 	}
 
 	fn build_table_info(&self, table: &TableConfig) -> Vec<Line<'static>> {
