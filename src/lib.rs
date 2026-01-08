@@ -17,3 +17,4 @@ pub mod table;
 pub mod theme;
 pub mod tui;
 pub mod view;
+pub mod defaults;

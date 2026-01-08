@@ -10,8 +10,6 @@ fn config_paths(filename: &str) -> Vec<PathBuf> {
 		paths.push(user_config);
 	}
 
-	paths.push(PathBuf::from("config").join(filename));
-
 	paths
 }
 
@@ -226,13 +224,17 @@ pub fn load_models_auto() -> Result<ModelsConfig, String> {
 }
 
 pub fn load_strategies_auto() -> Result<crate::strategy::StrategyStore, String> {
-	let path = resolve_config("strategies.toml")?;
-	crate::strategy::StrategyStore::load(&path)
+	match resolve_config("strategies.toml") {
+		Ok(path) => crate::strategy::StrategyStore::load(&path),
+		Err(_) => Ok(crate::strategy::StrategyStore::default()),
+	}
 }
 
 pub fn load_players_auto() -> Result<Vec<PlayerConfig>, String> {
-	let path = resolve_config("players.toml")?;
-	load_players(&path)
+	match resolve_config("players.toml") {
+		Ok(path) => load_players(&path),
+		Err(_) => Ok(Vec::new()),
+	}
 }
 
 #[cfg(test)]

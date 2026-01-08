@@ -125,13 +125,14 @@ impl DelayConfig {
 }
 
 fn list_themes() {
-	let themes = ["dark", "light", "dracula", "solarized", "gruvbox", "nord", "monokai", "papercolor"];
+	let themes = Theme::list_available();
 	println!("Available themes:");
 	for theme in themes {
 		println!("  {}", theme);
 	}
 	println!("\nUsage: poker play --theme <name>");
 	println!("Or set POKER_THEME environment variable");
+	println!("\nCustom themes: add .toml files to your config directory's themes/ folder");
 }
 
 fn resolve_player_id(player_arg: Option<&str>, bank: &Bank) -> Result<String, String> {
@@ -529,6 +530,7 @@ fn interruptible_sleep(duration: Duration) -> io::Result<bool> {
 }
 
 fn main() -> io::Result<()> {
+	transparent_poker::defaults::ensure_config();
 	let cli = Cli::parse();
 
 	match cli.command {

@@ -135,24 +135,18 @@ impl Theme {
 	}
 
 	pub fn load_named(name: &str) -> Result<Self, String> {
-		if let Some(config_dir) = dirs::config_dir() {
-			let user_path = config_dir
-				.join("transparent-poker")
-				.join("themes")
-				.join(format!("{}.toml", name));
-			if user_path.exists() {
-				return Self::from_file(&user_path);
-			}
-		}
-
-		let repo_path = PathBuf::from("config")
+		let config_dir = dirs::config_dir()
+			.ok_or_else(|| "Could not determine config directory".to_string())?;
+		let path = config_dir
+			.join("transparent-poker")
 			.join("themes")
 			.join(format!("{}.toml", name));
-		if repo_path.exists() {
-			return Self::from_file(&repo_path);
-		}
 
-		Err(format!("Theme '{}' not found", name))
+		if path.exists() {
+			Self::from_file(&path)
+		} else {
+			Err(format!("Theme '{}' not found", name))
+		}
 	}
 
 	fn from_file(path: &PathBuf) -> Result<Self, String> {
@@ -160,6 +154,10 @@ impl Theme {
 			.map_err(|e| format!("Failed to read theme file: {}", e))?;
 		toml::from_str(&contents)
 			.map_err(|e| format!("Failed to parse theme: {}", e))
+	}
+
+	pub fn list_available() -> Vec<String> {
+		crate::defaults::list_themes()
 	}
 
 	pub fn background(&self) -> Color {

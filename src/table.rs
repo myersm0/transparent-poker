@@ -1,6 +1,5 @@
 use serde::{Deserialize, Serialize};
 use std::fs;
-use std::path::PathBuf;
 
 use crate::logging;
 
@@ -186,29 +185,19 @@ struct TablesFile {
 }
 
 pub fn load_tables() -> Result<Vec<TableConfig>, String> {
-	let path = config_path()?;
+	let config_dir = dirs::config_dir()
+		.ok_or_else(|| "Could not determine config directory".to_string())?;
+	let path = config_dir.join("transparent-poker").join("tables.toml");
 
-	if !path.exists() {
-		return Ok(default_tables());
+	if path.exists() {
+		let content = fs::read_to_string(&path)
+			.map_err(|e| format!("Failed to read {}: {}", path.display(), e))?;
+		let file: TablesFile = toml::from_str(&content)
+			.map_err(|e| format!("Failed to parse tables config: {}", e))?;
+		Ok(file.tables)
+	} else {
+		Ok(default_tables())
 	}
-
-	let content = fs::read_to_string(&path)
-		.map_err(|e| format!("Failed to read {}: {}", path.display(), e))?;
-
-	let file: TablesFile = toml::from_str(&content)
-		.map_err(|e| format!("Failed to parse tables config: {}", e))?;
-
-	Ok(file.tables)
-}
-
-fn config_path() -> Result<PathBuf, String> {
-	if let Some(config_dir) = dirs::config_dir() {
-		let user_path = config_dir.join("transparent-poker").join("tables.toml");
-		if user_path.exists() {
-			return Ok(user_path);
-		}
-	}
-	Ok(PathBuf::from("config/tables.toml"))
 }
 
 fn default_tables() -> Vec<TableConfig> {
