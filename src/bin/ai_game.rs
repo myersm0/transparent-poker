@@ -1,9 +1,9 @@
 use std::sync::Arc;
 
-use poker_tui::config::load_strategies_auto;
-use poker_tui::engine::{BettingStructure, GameRunner, RunnerConfig};
-use poker_tui::events::Seat;
-use poker_tui::players::{FoldingPlayer, RulesPlayer};
+use transparent_poker::config::load_strategies_auto;
+use transparent_poker::engine::{BettingStructure, GameRunner, RunnerConfig};
+use transparent_poker::events::Seat;
+use transparent_poker::players::{FoldingPlayer, RulesPlayer};
 
 fn main() {
 	let strategies = load_strategies_auto()
@@ -57,17 +57,17 @@ fn main() {
 		match game_handle.event_rx.recv() {
 			Ok(event) => {
 				match &event {
-					poker_tui::events::GameEvent::HandStarted { hand_num, .. } => {
+					transparent_poker::events::GameEvent::HandStarted { hand_num, .. } => {
 						hand_count = *hand_num;
 						println!("\n=== Hand {} ===", hand_num);
 					}
-					poker_tui::events::GameEvent::ActionTaken { seat, action, pot_after, .. } => {
+					transparent_poker::events::GameEvent::ActionTaken { seat, action, pot_after, .. } => {
 						println!("  Seat {}: {} (pot: ${:.0})", seat.0, action.description(), pot_after);
 					}
-					poker_tui::events::GameEvent::PotAwarded { seat, amount, hand_description, .. } => {
+					transparent_poker::events::GameEvent::PotAwarded { seat, amount, hand_description, .. } => {
 						println!("  → Seat {} wins ${:.0} {:?}", seat.0, amount, hand_description);
 					}
-					poker_tui::events::GameEvent::GameEnded { .. } => {
+					transparent_poker::events::GameEvent::GameEnded { .. } => {
 						println!("\nGame ended after {} hands", hand_count);
 						break;
 					}

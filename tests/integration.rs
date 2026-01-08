@@ -1,8 +1,8 @@
 use std::sync::Arc;
 
-use poker_tui::engine::{BettingStructure, GameRunner, RunnerConfig};
-use poker_tui::events::{GameEvent, PlayerAction, Seat};
-use poker_tui::players::TestPlayer;
+use transparent_poker::engine::{BettingStructure, GameRunner, RunnerConfig};
+use transparent_poker::events::{GameEvent, PlayerAction, Seat};
+use transparent_poker::players::TestPlayer;
 
 #[test]
 fn test_heads_up_game_completes() {
@@ -252,11 +252,11 @@ fn test_blind_posting() {
 	while let Ok(event) = handle.event_rx.try_recv() {
 		if let GameEvent::BlindPosted { blind_type, amount, .. } = event {
 			match blind_type {
-				poker_tui::events::BlindType::Small => {
+				transparent_poker::events::BlindType::Small => {
 					assert!((amount - 5.0).abs() < 0.01, "Small blind should be 5.0");
 					small_blind_posted = true;
 				}
-				poker_tui::events::BlindType::Big => {
+				transparent_poker::events::BlindType::Big => {
 					assert!((amount - 10.0).abs() < 0.01, "Big blind should be 10.0");
 					big_blind_posted = true;
 				}

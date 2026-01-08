@@ -1,9 +1,9 @@
 use std::sync::Arc;
 
-use poker_tui::engine::{BettingStructure, GameRunner, RunnerConfig};
-use poker_tui::events::GameEvent;
-use poker_tui::players::{CallingPlayer, FoldingPlayer, TestPlayer};
-use poker_tui::events::{PlayerAction, Seat};
+use transparent_poker::engine::{BettingStructure, GameRunner, RunnerConfig};
+use transparent_poker::events::GameEvent;
+use transparent_poker::players::{CallingPlayer, FoldingPlayer, TestPlayer};
+use transparent_poker::events::{PlayerAction, Seat};
 
 fn main() {
 	println!("=== Poker Engine Headless Test ===\n");
@@ -113,10 +113,10 @@ fn main() {
 			}
 			GameEvent::ChatMessage { sender, text } => {
 				match sender {
-					poker_tui::events::ChatSender::System => println!("  [SYS] {}", text),
-					poker_tui::events::ChatSender::Dealer => println!("  [DEALER] {}", text),
-					poker_tui::events::ChatSender::Player(seat) => println!("  [CHAT] Seat {}: {}", seat.0, text),
-					poker_tui::events::ChatSender::Spectator(name) => println!("  [SPEC] {}: {}", name, text),
+					transparent_poker::events::ChatSender::System => println!("  [SYS] {}", text),
+					transparent_poker::events::ChatSender::Dealer => println!("  [DEALER] {}", text),
+					transparent_poker::events::ChatSender::Player(seat) => println!("  [CHAT] Seat {}: {}", seat.0, text),
+					transparent_poker::events::ChatSender::Spectator(name) => println!("  [SPEC] {}: {}", name, text),
 				}
 			}
 			_ => {}

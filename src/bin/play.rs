@@ -17,17 +17,17 @@ use ratatui::{
 	Frame, Terminal,
 };
 
-use poker_tui::bank::Bank;
-use poker_tui::config::{load_players_auto, load_strategies_auto};
-use poker_tui::engine::{BettingStructure, GameRunner, RunnerConfig};
-use poker_tui::events::{GameEvent, PlayerAction, RaiseOptions, Seat, Standing, ValidActions, ViewUpdater};
-use poker_tui::logging::{self, tui as log};
-use poker_tui::menu::{LobbyPlayer, Menu, MenuResult};
-use poker_tui::players::{ActionRequest, PlayerResponse, RulesPlayer, TerminalPlayer};
-use poker_tui::table::{load_tables, BlindClock, GameFormat, TableConfig};
-use poker_tui::theme::Theme;
-use poker_tui::tui::TableWidget;
-use poker_tui::view::TableView;
+use transparent_poker::bank::Bank;
+use transparent_poker::config::{load_players_auto, load_strategies_auto};
+use transparent_poker::engine::{BettingStructure, GameRunner, RunnerConfig};
+use transparent_poker::events::{GameEvent, PlayerAction, RaiseOptions, Seat, Standing, ValidActions, ViewUpdater};
+use transparent_poker::logging::{self, tui as log};
+use transparent_poker::menu::{LobbyPlayer, Menu, MenuResult};
+use transparent_poker::players::{ActionRequest, PlayerResponse, RulesPlayer, TerminalPlayer};
+use transparent_poker::table::{load_tables, BlindClock, GameFormat, TableConfig};
+use transparent_poker::theme::Theme;
+use transparent_poker::tui::TableWidget;
+use transparent_poker::view::TableView;
 
 #[derive(Parser)]
 #[command(name = "poker")]
@@ -685,7 +685,7 @@ fn run_app(
 					let buy_in = table.buy_in.unwrap_or(0.0);
 					let num_players = standings.len();
 					if let Some(payout_pcts) = &table.payouts {
-						let payouts = poker_tui::table::calculate_payouts(buy_in, num_players, payout_pcts);
+						let payouts = transparent_poker::table::calculate_payouts(buy_in, num_players, payout_pcts);
 						for (i, payout) in payouts.iter().enumerate() {
 							if let Some(standing) = standings.iter().find(|s| s.finish_position == (i + 1) as u8) {
 								bank.award_prize(&standing.name, *payout, i + 1);
@@ -723,9 +723,9 @@ fn run_game(
 	let blind_clock = BlindClock::from_table(&table);
 
 	let betting_structure = match table.betting {
-		poker_tui::table::BettingStructure::NoLimit => BettingStructure::NoLimit,
-		poker_tui::table::BettingStructure::PotLimit => BettingStructure::PotLimit,
-		poker_tui::table::BettingStructure::FixedLimit => BettingStructure::FixedLimit,
+		transparent_poker::table::BettingStructure::NoLimit => BettingStructure::NoLimit,
+		transparent_poker::table::BettingStructure::PotLimit => BettingStructure::PotLimit,
+		transparent_poker::table::BettingStructure::FixedLimit => BettingStructure::FixedLimit,
 	};
 
 	let seed = cli_seed.or(table.seed);
