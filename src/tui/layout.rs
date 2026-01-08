@@ -19,6 +19,7 @@ pub struct TableLayout {
 	pub board_area: Rect,
 	pub pot_area: Rect,
 	pub chat_area: Rect,
+	pub info_area: Rect,
 }
 
 impl TableLayout {
@@ -55,11 +56,20 @@ impl TableLayout {
 		);
 
 		let bottom_y = area.y + area.height.saturating_sub(chat_height);
+		let bottom_width = area.width.saturating_sub(2);
+		let half_width = bottom_width / 2;
 
 		let chat_area = Rect::new(
 			area.x + 1,
 			bottom_y,
-			area.width.saturating_sub(2),
+			half_width,
+			chat_height,
+		);
+
+		let info_area = Rect::new(
+			area.x + 1 + half_width,
+			bottom_y,
+			bottom_width - half_width,
 			chat_height,
 		);
 
@@ -68,6 +78,7 @@ impl TableLayout {
 			board_area,
 			pot_area,
 			chat_area,
+			info_area,
 		}
 	}
 }

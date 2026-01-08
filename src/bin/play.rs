@@ -172,6 +172,62 @@ struct WinnerInfo {
 	awarded_at: Instant,
 }
 
+fn build_info_lines(table: &TableConfig, seed: Option<u64>) -> Vec<String> {
+	let mut lines = vec![
+		format!("Format: {}", table.format),
+		format!("Betting: {}", table.betting),
+		String::new(),
+	];
+
+	match table.format {
+		GameFormat::Cash => {
+			if let (Some(sb), Some(bb)) = (table.small_blind, table.big_blind) {
+				lines.push(format!("Blinds: ${:.0}/${:.0}", sb, bb));
+			}
+			if let Some(min) = table.min_buy_in {
+				lines.push(format!("Min Buy-in: ${:.0}", min));
+			}
+			if let Some(max) = table.max_buy_in {
+				lines.push(format!("Max Buy-in: ${:.0}", max));
+			}
+			lines.push(String::new());
+			lines.push(format!("Players: {}", table.player_range()));
+			if table.rake_percent > 0.0 {
+				let rake_str = if let Some(cap) = table.rake_cap {
+					format!("Rake: {:.1}% (${:.0} cap)", table.rake_percent, cap)
+				} else {
+					format!("Rake: {:.1}%", table.rake_percent)
+				};
+				lines.push(rake_str);
+			}
+		}
+		GameFormat::SitNGo => {
+			if let Some(buyin) = table.buy_in {
+				lines.push(format!("Buy-in: ${:.0}", buyin));
+			}
+			if let Some(stack) = table.starting_stack {
+				lines.push(format!("Starting Stack: ${:.0}", stack));
+			}
+			lines.push(String::new());
+			lines.push(format!("Players: {}", table.player_range()));
+			if let Some(ref payouts) = table.payouts {
+				let payout_strs: Vec<String> = payouts
+					.iter()
+					.map(|p| format!("{:.0}%", p * 100.0))
+					.collect();
+				lines.push(format!("Payouts: {}", payout_strs.join(", ")));
+			}
+		}
+	}
+
+	if let Some(s) = seed {
+		lines.push(String::new());
+		lines.push(format!("Seed: {}", s));
+	}
+
+	lines
+}
+
 struct App {
 	table_view: TableView,
 	view_updater: ViewUpdater,
@@ -181,12 +237,16 @@ struct App {
 	human_seat: Seat,
 	final_standings: Vec<Standing>,
 	quit_pending: bool,
+	table_config: TableConfig,
+	info_lines: Vec<String>,
 	theme: Theme,
 }
 
 impl App {
-	fn new(human_seat: Seat, table_name: String, table_info: String, theme: Theme) -> Self {
-		let table_view = TableView::new().with_table_info(table_name, table_info);
+	fn new(human_seat: Seat, table_config: TableConfig, effective_seed: Option<u64>, theme: Theme) -> Self {
+		let table_info = format!("{} {}", table_config.betting, table_config.format);
+		let table_view = TableView::new().with_table_info(table_config.name.clone(), table_info);
+		let info_lines = build_info_lines(&table_config, effective_seed);
 		Self {
 			table_view,
 			view_updater: ViewUpdater::new(Some(human_seat)),
@@ -196,6 +256,8 @@ impl App {
 			human_seat,
 			final_standings: Vec::new(),
 			quit_pending: false,
+			table_config,
+			info_lines,
 			theme,
 		}
 	}
@@ -737,8 +799,7 @@ fn run_game(
 		runner.run();
 	});
 
-	let table_info = format!("{} {}", table.betting, table.format);
-	let mut app = App::new(human_seat, table.name.clone(), table_info, theme);
+	let mut app = App::new(human_seat, table.clone(), seed, theme);
 	let delays = DelayConfig::from_table(&table);
 	log::event("game started");
 
@@ -865,7 +926,8 @@ fn draw_ui(frame: &mut Frame, app: &App) {
 	let winner_area = layout[1];
 	let status_area = layout[2];
 
-	let table_widget = TableWidget::new(&app.table_view, &app.theme);
+	let table_widget = TableWidget::new(&app.table_view, &app.theme)
+		.with_info(&app.table_config.name, &app.info_lines);
 	frame.render_widget(table_widget, table_area);
 
 	let winner_text = if app.last_winners.is_empty() {

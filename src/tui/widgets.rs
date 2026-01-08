@@ -213,6 +213,8 @@ pub struct TableWidget<'a> {
 	view: &'a TableView,
 	theme: &'a Theme,
 	show_all_cards: bool,
+	info_lines: Option<&'a [String]>,
+	info_title: Option<&'a str>,
 }
 
 impl<'a> TableWidget<'a> {
@@ -221,11 +223,19 @@ impl<'a> TableWidget<'a> {
 			view,
 			theme,
 			show_all_cards: view.street == Street::Showdown,
+			info_lines: None,
+			info_title: None,
 		}
 	}
 
 	pub fn show_all_cards(mut self, show: bool) -> Self {
 		self.show_all_cards = show;
+		self
+	}
+
+	pub fn with_info(mut self, title: &'a str, lines: &'a [String]) -> Self {
+		self.info_title = Some(title);
+		self.info_lines = Some(lines);
 		self
 	}
 }
@@ -300,6 +310,11 @@ impl Widget for TableWidget<'_> {
 
 		let chat_widget = ChatWidget::new(&self.view.chat_messages, self.theme);
 		chat_widget.render(layout.chat_area, buf);
+
+		if let (Some(title), Some(lines)) = (self.info_title, self.info_lines) {
+			let info_widget = InfoWidget::new(title, lines, self.theme);
+			info_widget.render(layout.info_area, buf);
+		}
 	}
 }
 
@@ -348,5 +363,38 @@ impl Widget for ChatWidget<'_> {
 			.collect();
 
 		Paragraph::new(lines).render(inner, buf);
+	}
+}
+
+pub struct InfoWidget<'a> {
+	title: &'a str,
+	lines: &'a [String],
+	theme: &'a Theme,
+}
+
+impl<'a> InfoWidget<'a> {
+	pub fn new(title: &'a str, lines: &'a [String], theme: &'a Theme) -> Self {
+		Self { title, lines, theme }
+	}
+}
+
+impl Widget for InfoWidget<'_> {
+	fn render(self, area: Rect, buf: &mut Buffer) {
+		let block = Block::default()
+			.borders(Borders::ALL)
+			.border_style(Style::default().fg(self.theme.menu_border()))
+			.title(format!(" {} ", self.title));
+
+		let inner = block.inner(area);
+		block.render(area, buf);
+
+		let max_lines = inner.height as usize;
+		let display_lines: Vec<Line> = self.lines
+			.iter()
+			.take(max_lines)
+			.map(|s| Line::styled(s.as_str(), Style::default().fg(self.theme.menu_text())))
+			.collect();
+
+		Paragraph::new(display_lines).render(inner, buf);
 	}
 }
