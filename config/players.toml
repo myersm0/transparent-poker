@@ -58,7 +58,86 @@ join_probability = 0.50
 strategy = "lag"
 
 [[players]]
+id = "crispin"
+version = "0.2"
+join_probability = 0.45
+strategy = "maniac"
+strategy_model = "opus"  # Experimental
+
+[[players]]
 id = "enrico"
 version = "0.2"
 join_probability = 0.45
 strategy = "rock"
+
+[[players]]
+id = "tristan"
+version = "0.2"
+join_probability = 0.40
+strategy = "balanced"
+
+[[players]]
+id = "yuki"
+version = "0.2"
+join_probability = 0.40
+strategy = "lag"
+
+# === OCCASIONALS ===
+
+[[players]]
+id = "macro"
+version = "0.2"
+join_probability = 0.30
+strategy = "calling_station"
+
+[[players]]
+id = "smith"
+version = "0.2"
+join_probability = 0.30
+strategy = "rock"
+
+[[players]]
+id = "richter"
+version = "0.2"
+join_probability = 0.25
+strategy = "maniac"
+
+[[players]]
+id = "ramona"
+version = "0.2"
+join_probability = 0.20
+strategy = "balanced"
+
+[[players]]
+id = "maya"
+version = "0.2"
+join_probability = 0.20
+strategy = "lag"
+
+# === RARE APPEARANCES ===
+
+[[players]]
+id = "ace"
+version = "0.2"
+join_probability = 0.10
+strategy = "maniac"
+
+[[players]]
+id = "ludovico"
+version = "0.2"
+join_probability = 0.08
+strategy = "nit"
+
+[[players]]
+id = "zahra"
+version = "0.2"
+join_probability = 0.05
+strategy = "balanced"
+strategy_model = "opus"  # Experimental
+
+[[players]]
+id = "skip"
+version = "0.2"
+join_probability = 0.03
+strategy = "maniac"
+
