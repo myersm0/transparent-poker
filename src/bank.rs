@@ -111,6 +111,14 @@ impl Bank {
 		}
 	}
 
+	pub fn register(&mut self, id: &str, bankroll: f32) {
+		self.profiles.insert(
+			id.to_string(),
+			PlayerProfile { bankroll },
+		);
+		logging::log("Bank", "REGISTER", &format!("{}: ${:.2}", id, bankroll));
+	}
+
 	pub fn debit(&mut self, id: &str, amount: f32) -> Result<(), InsufficientFunds> {
 		self.ensure_exists(id);
 		let profile = self.profiles.get_mut(id).expect("profile exists after ensure_exists");

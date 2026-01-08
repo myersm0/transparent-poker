@@ -9,7 +9,7 @@ name = "headless"
 path = "src/bin/headless.rs"
 
 [[bin]]
-name = "play"
+name = "poker"
 path = "src/bin/play.rs"
 
 [[bin]]

@@ -2,7 +2,7 @@ use std::io::{self, stdout};
 use std::sync::{mpsc, Arc};
 use std::time::{Duration, Instant};
 
-use clap::Parser;
+use clap::{Parser, Subcommand};
 use crossterm::{
 	event::{self, Event, KeyCode, KeyEventKind},
 	execute,
@@ -33,22 +33,76 @@ use poker_tui::view::TableView;
 #[command(name = "poker")]
 #[command(about = "Transparent poker - play Texas Hold'em against AI opponents")]
 #[command(version)]
-struct Args {
-	#[arg(short, long, env = "POKER_USER")]
-	#[arg(help = "Player name (must exist in profiles.toml)")]
-	player: Option<String>,
+struct Cli {
+	#[command(subcommand)]
+	command: Commands,
+}
 
-	#[arg(short, long, env = "POKER_THEME")]
-	#[arg(help = "Color theme (dark, light, dracula, solarized, gruvbox, nord, monokai, papercolor)")]
-	theme: Option<String>,
+#[derive(Subcommand)]
+enum Commands {
+	#[command(about = "Start the game")]
+	Play {
+		#[arg(short, long, env = "POKER_USER")]
+		#[arg(help = "Player name (must exist in profiles)")]
+		player: Option<String>,
 
-	#[arg(long)]
-	#[arg(help = "RNG seed for reproducible games (overrides table seed)")]
-	seed: Option<u64>,
+		#[arg(short, long, env = "POKER_THEME")]
+		#[arg(help = "Color theme")]
+		theme: Option<String>,
 
-	#[arg(long)]
-	#[arg(help = "List available themes and exit")]
-	list_themes: bool,
+		#[arg(long)]
+		#[arg(help = "RNG seed for reproducible games")]
+		seed: Option<u64>,
+	},
+
+	#[command(about = "List available color themes")]
+	Themes,
+
+	#[command(about = "Register a new player")]
+	Register {
+		#[arg(help = "Player name")]
+		name: String,
+
+		#[arg(short, long, default_value = "10000")]
+		#[arg(help = "Starting bankroll")]
+		bankroll: f32,
+	},
+
+	#[command(about = "List all registered players")]
+	Players,
+
+	#[command(about = "Manage player bankroll")]
+	Bankroll {
+		#[arg(help = "Player name")]
+		name: String,
+
+		#[command(subcommand)]
+		action: BankrollAction,
+	},
+}
+
+#[derive(Subcommand)]
+enum BankrollAction {
+	#[command(about = "Show current bankroll")]
+	Show,
+
+	#[command(about = "Set bankroll to specific amount")]
+	Set {
+		#[arg(help = "New bankroll amount")]
+		amount: f32,
+	},
+
+	#[command(about = "Add to bankroll")]
+	Add {
+		#[arg(help = "Amount to add")]
+		amount: f32,
+	},
+
+	#[command(about = "Subtract from bankroll")]
+	Sub {
+		#[arg(help = "Amount to subtract")]
+		amount: f32,
+	},
 }
 
 const WINNER_HIGHLIGHT_MS: u64 = 2000;
@@ -86,13 +140,13 @@ fn resolve_player_id(player_arg: Option<&str>, bank: &Bank) -> Result<String, St
 			return Ok(name.to_string());
 		} else {
 			return Err(format!(
-				"Player '{}' not found in profiles.toml. Use 'poker register {}' to create.",
+				"Player '{}' not found. Use 'poker register {}' to create.",
 				name, name
 			));
 		}
 	}
 
-	Err("No player specified. Use --player <name> or set POKER_USER environment variable.".to_string())
+	Err("No player specified. Use 'poker play --player <n>' or set POKER_USER.".to_string())
 }
 
 enum InputMode {
@@ -413,17 +467,113 @@ fn interruptible_sleep(duration: Duration) -> io::Result<bool> {
 }
 
 fn main() -> io::Result<()> {
-	let args = Args::parse();
+	let cli = Cli::parse();
 
-	if args.list_themes {
-		list_themes();
+	match cli.command {
+		Commands::Themes => {
+			list_themes();
+			Ok(())
+		}
+
+		Commands::Register { name, bankroll } => {
+			cmd_register(&name, bankroll)
+		}
+
+		Commands::Players => {
+			cmd_list_players()
+		}
+
+		Commands::Bankroll { name, action } => {
+			cmd_bankroll(&name, action)
+		}
+
+		Commands::Play { player, theme, seed } => {
+			cmd_play(player, theme, seed)
+		}
+	}
+}
+
+fn cmd_register(name: &str, bankroll: f32) -> io::Result<()> {
+	let mut bank = Bank::load().map_err(|e| io::Error::new(io::ErrorKind::Other, e))?;
+
+	if bank.profile_exists(name) {
+		eprintln!("Player '{}' already exists.", name);
 		return Ok(());
 	}
 
-	let theme = Theme::load(args.theme.as_deref());
+	bank.register(name, bankroll);
+	bank.save().map_err(|e| io::Error::new(io::ErrorKind::Other, e))?;
+
+	println!("Registered '{}' with bankroll ${:.0}", name, bankroll);
+	Ok(())
+}
+
+fn cmd_list_players() -> io::Result<()> {
 	let bank = Bank::load().map_err(|e| io::Error::new(io::ErrorKind::Other, e))?;
 
-	let host_id = resolve_player_id(args.player.as_deref(), &bank).map_err(|e| {
+	let players = bank.list_players();
+	if players.is_empty() {
+		println!("No registered players.");
+		println!("Use 'poker register <name>' to create one.");
+		return Ok(());
+	}
+
+	println!("{:<20} {:>12}", "Player", "Bankroll");
+	println!("{}", "-".repeat(34));
+	for (name, profile) in players {
+		println!("{:<20} ${:>11.0}", name, profile.bankroll);
+	}
+
+	Ok(())
+}
+
+fn cmd_bankroll(name: &str, action: BankrollAction) -> io::Result<()> {
+	let mut bank = Bank::load().map_err(|e| io::Error::new(io::ErrorKind::Other, e))?;
+
+	if !bank.profile_exists(name) {
+		eprintln!("Player '{}' not found. Use 'poker register {}' first.", name, name);
+		return Ok(());
+	}
+
+	match action {
+		BankrollAction::Show => {
+			let balance = bank.get_bankroll(name);
+			println!("{}: ${:.0}", name, balance);
+		}
+		BankrollAction::Set { amount } => {
+			let current = bank.get_bankroll(name);
+			if amount > current {
+				bank.credit(name, amount - current);
+			} else {
+				bank.debit(name, current - amount)
+					.map_err(|e| io::Error::new(io::ErrorKind::Other, e.to_string()))?;
+			}
+			bank.save().map_err(|e| io::Error::new(io::ErrorKind::Other, e))?;
+			println!("{}: ${:.0}", name, amount);
+		}
+		BankrollAction::Add { amount } => {
+			bank.credit(name, amount);
+			bank.save().map_err(|e| io::Error::new(io::ErrorKind::Other, e))?;
+			let new_balance = bank.get_bankroll(name);
+			println!("{}: ${:.0} (+{:.0})", name, new_balance, amount);
+		}
+		BankrollAction::Sub { amount } => {
+			bank.debit(name, amount)
+				.map_err(|e| io::Error::new(io::ErrorKind::Other, e.to_string()))?;
+			bank.save().map_err(|e| io::Error::new(io::ErrorKind::Other, e))?;
+			let new_balance = bank.get_bankroll(name);
+			println!("{}: ${:.0} (-{:.0})", name, new_balance, amount);
+		}
+	}
+
+	Ok(())
+}
+
+fn cmd_play(player: Option<String>, theme: Option<String>, seed: Option<u64>) -> io::Result<()> {
+	let theme = Theme::load(theme.as_deref());
+	let bank = Bank::load().map_err(|e| io::Error::new(io::ErrorKind::Other, e))?;
+
+	let host_id = resolve_player_id(player.as_deref(), &bank).map_err(|e| {
 		io::Error::new(io::ErrorKind::InvalidInput, e)
 	})?;
 
@@ -433,7 +583,7 @@ fn main() -> io::Result<()> {
 	let backend = CrosstermBackend::new(stdout);
 	let mut terminal = Terminal::new(backend)?;
 
-	let result = run_app(&mut terminal, theme, host_id, args.seed);
+	let result = run_app(&mut terminal, theme, host_id, seed);
 
 	disable_raw_mode()?;
 	execute!(terminal.backend_mut(), LeaveAlternateScreen)?;
