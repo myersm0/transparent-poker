@@ -342,13 +342,13 @@ impl Widget for ChatWidget<'_> {
 		let max_lines = inner.height as usize;
 		let start = self.messages.len().saturating_sub(max_lines);
 
-		let lines: Vec<Line> = self.messages[start..]
+			let lines: Vec<Line> = self.messages[start..]
 			.iter()
 			.map(|msg| {
 				if msg.is_system {
 					Line::styled(
 						format!("» {}", msg.text),
-						Style::default().fg(self.theme.system_message()),
+						Style::default().fg(self.theme.system_message()).add_modifier(Modifier::BOLD),
 					)
 				} else {
 					Line::from(vec![

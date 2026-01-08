@@ -50,6 +50,13 @@ impl ViewUpdater {
 					.collect();
 
 				self.update_button(view, *button);
+
+				let active_count = seats.iter().filter(|s| s.is_active).count();
+				view.chat_messages.push(ChatMessage {
+					sender: String::new(),
+					text: format!("Preflop ({} players)", active_count),
+					is_system: true,
+				});
 			}
 
 			GameEvent::HoleCardsDealt { seat, cards } => {
@@ -80,6 +87,42 @@ impl ViewUpdater {
 					player.current_bet = 0.0;
 					player.last_action = None;
 				}
+
+				let active_count = view.players.iter()
+					.filter(|p| matches!(p.status, PlayerStatus::Active | PlayerStatus::AllIn))
+					.count();
+
+				let msg = match street {
+					Street::Flop => {
+						let cards: Vec<String> = board.iter()
+							.map(|c| ViewCard::new(c.rank, c.suit).display())
+							.collect();
+						format!("Flop ({} players): {}", active_count, cards.join(" "))
+					}
+					Street::Turn => {
+						if let Some(card) = board.last() {
+							let card_str = ViewCard::new(card.rank, card.suit).display();
+							format!("Turn ({} players): {}", active_count, card_str)
+						} else {
+							return;
+						}
+					}
+					Street::River => {
+						if let Some(card) = board.last() {
+							let card_str = ViewCard::new(card.rank, card.suit).display();
+							format!("River ({} players): {}", active_count, card_str)
+						} else {
+							return;
+						}
+					}
+					_ => return,
+				};
+
+				view.chat_messages.push(ChatMessage {
+					sender: String::new(),
+					text: msg,
+					is_system: true,
+				});
 			}
 
 			GameEvent::ActionRequest { seat, valid_actions, .. } => {
