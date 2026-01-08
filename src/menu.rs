@@ -397,7 +397,7 @@ impl Menu {
 
 		let host_bankroll = self.bank.get_bankroll(&self.host_id);
 		let header = Paragraph::new(format!(
-			"  POKER TUI                                    Bankroll: ${:.0}",
+			"  Transparent Poker                            Bankroll: ${:.0}",
 			host_bankroll
 		))
 		.style(Style::default().fg(self.theme.menu_title()).add_modifier(Modifier::BOLD))
@@ -415,7 +415,7 @@ impl Menu {
 				};
 				let line = Line::from(vec![
 					Span::styled(
-						format!("{:<22}", t.name),
+						format!("{:<24}", t.name),
 						Style::default().fg(self.theme.menu_text()),
 					),
 					Span::styled(
@@ -423,7 +423,7 @@ impl Menu {
 						Style::default().fg(self.theme.menu_unselected()),
 					),
 					Span::styled(
-						format!("{:<18}", t.summary()),
+						format!("{:<21}", t.summary()),
 						Style::default().fg(self.theme.menu_highlight()),
 					),
 					Span::styled(t.player_range(), Style::default().fg(self.theme.menu_unselected())),

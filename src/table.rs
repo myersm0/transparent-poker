@@ -161,10 +161,10 @@ impl TableConfig {
 		match self.format {
 			GameFormat::Cash => {
 				let (small, big) = self.current_blinds();
-				format!("{} ${:.0}/${:.0}", self.betting, small, big)
+				format!("${:.0}/${:.0} {}", small, big, self.betting)
 			}
 			GameFormat::SitNGo => {
-				format!("{} ${:.0} BI", self.betting, self.effective_buy_in())
+				format!("${:.0} {}", self.effective_buy_in(), self.betting)
 			}
 		}
 	}
