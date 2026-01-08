@@ -1,7 +1,8 @@
 use std::fs::{self, OpenOptions};
 use std::io::Write;
 use std::sync::Mutex;
-use std::time::{SystemTime, UNIX_EPOCH};
+
+use chrono::Local;
 
 struct LogState {
 	file: Option<std::fs::File>,
@@ -18,35 +19,27 @@ static LOG_STATE: Mutex<LogState> = Mutex::new(LogState {
 });
 
 fn today() -> String {
-	let secs = SystemTime::now()
-		.duration_since(UNIX_EPOCH)
-		.unwrap()
-		.as_secs();
-	let days = secs / 86400;
-	let year = 1970 + (days / 365);
-	let day_of_year = days % 365;
-	let month = day_of_year / 30 + 1;
-	let day = day_of_year % 30 + 1;
-	format!("{:04}-{:02}-{:02}", year, month.min(12), day.min(31))
+	Local::now().format("%Y-%m-%d").to_string()
 }
 
 fn timestamp() -> String {
-	let now = SystemTime::now()
-		.duration_since(UNIX_EPOCH)
-		.unwrap();
-	let secs = now.as_secs();
-	let millis = now.as_millis() % 1000;
-	let hours = (secs / 3600) % 24;
-	let mins = (secs / 60) % 60;
-	let s = secs % 60;
-	format!("{:02}:{:02}:{:02}.{:03}", hours, mins, s, millis)
+	Local::now().format("%H:%M:%S%.3f").to_string()
+}
+
+fn log_dir() -> std::path::PathBuf {
+	if let Some(data_dir) = dirs::data_dir() {
+		data_dir.join("transparent-poker").join("logs")
+	} else {
+		std::path::PathBuf::from("logs")
+	}
 }
 
 fn ensure_log_file(state: &mut LogState) {
 	let date = today();
 	if state.current_date != date || state.file.is_none() {
-		let _ = fs::create_dir_all("logs");
-		let path = format!("logs/poker-{}.log", date);
+		let log_dir = log_dir();
+		let _ = fs::create_dir_all(&log_dir);
+		let path = log_dir.join(format!("poker-{}.log", date));
 		if let Ok(file) = OpenOptions::new()
 			.create(true)
 			.append(true)

@@ -17,6 +17,7 @@ name = "ai-game"
 path = "src/bin/ai_game.rs"
 
 [dependencies]
+chrono = "0.4"
 clap = { version = "4.4", features = ["derive", "env"] }
 ratatui = "0.29"
 crossterm = "0.28"
