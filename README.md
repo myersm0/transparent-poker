@@ -45,24 +45,11 @@ cargo build --release
 ```
 
 ## Usage
-Register yourself as a player:
 ```bash
-poker register alice
-```
-
-Start playing:
-```bash
-poker play --player=alice
-```
-
-Play using a specific color scheme:
-```bash
-poker play --player=alice --theme=dracula
-```
-
-Play with a reproducible seed:
-```bash
-poker play --player=alice --seed=12345
+poker register alice                         # register yourself as player
+poker play --player=alice                    # start playing
+poker play --player=alice --theme=dracula    # play with the Dracula color scheme
+poker play --player=alice --seed=12345       # play using a reproducible seed
 ```
 
 ## Commands
