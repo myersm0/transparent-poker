@@ -263,15 +263,8 @@ impl Menu {
 										self.lobby_cursor += 1;
 									}
 								}
-								KeyCode::Enter => {
-									if self.lobby_cursor == self.lobby_players.len() {
-										self.add_next_ai();
-									} else if self.can_start() {
-										return Ok(MenuResult::StartGame {
-											table: self.selected_table.clone().expect("table selected in lobby state"),
-											players: self.lobby_players.clone(),
-										});
-									}
+								KeyCode::Char(' ') => {
+									self.add_next_ai();
 								}
 								KeyCode::Char('a') => {
 									self.add_next_ai();
@@ -279,7 +272,7 @@ impl Menu {
 								KeyCode::Char('d') | KeyCode::Delete | KeyCode::Backspace => {
 									self.remove_player_at_cursor();
 								}
-								KeyCode::Char('s') => {
+								KeyCode::Enter => {
 									if self.can_start() {
 										return Ok(MenuResult::StartGame {
 											table: self.selected_table.clone().expect("table selected in lobby state"),
@@ -500,7 +493,7 @@ impl Menu {
 
 		let can_start = self.can_start();
 		let help_text = if can_start {
-			"  [s] Start Game  [a] Add AI  [d] Remove  [Esc] Back  [q] Quit"
+			"  [Enter] Start game  [a] Add AI player  [d] Remove player  [Esc] Back  [q] Quit"
 		} else {
 			format!(
 				"  Need {} more players  [a] Add AI  [Esc] Back  [q] Quit",
