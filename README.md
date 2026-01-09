@@ -86,6 +86,22 @@ poker bankroll alice sub 500    # subtract $500
 | `a` | All-in |
 | `q` | Quit (press twice to confirm) |
 
+## Table selection and game formats
+When you first start the game with `poker play`, you will be presented with a table selection menu. Tables are organized by type of game (cash games first, then tournaments), stakes, and betting structure. Use arrow keys to browse, `enter` to open a lobby, or press `i` to view detailed table settings.
+
+Tables are named after stories by Guy de Maupassant. Lighter tiltes ("Two Friends", "The Country Excursion") at low stakes; darker psychological stories ("The Horla", "The Madwoman") at higher stakes.
+
+You can also configure your own tables in a custom `tables.toml` in your config directory (system-dependent location).
+
+### Cash games
+Three stake levels ($1/$2, $3/$6, $5/$10), each with fixed-limit, pot-limit, and no-limit variants. Standard rake structure with no-flop-no-drop.
+
+### Tournaments
+Sit-n-go format tournaments at $40, $200, and $500 buy-ins, again with all three betting variants. Most tables run 6-10 players with a standard top-3 payout scheme. A few oddballs:
+- ***The Duel*** — heads-up, winner-take-all
+- ***Was It a Dream?*** — 9-10 players, winner-take-all, turbo blinds
+- ***Who Knows?*** — deep stack marathon with unpredictable blind levels
+
 ## Themes
 Eight built-in themes: `dark`, `light`, `dracula`, `solarized`, `gruvbox`, `nord`, `retro`, `papercolor`.
 
@@ -109,35 +125,6 @@ Opponents use strategy archetypes defined in `config/strategies.toml`:
 | `maniac` | Hyper-aggressive. Raises constantly. |
 
 Edit `config/players.toml` to customize your opponent roster.
-
-## Game Formats
-**Cash Games** — Fixed blinds, play indefinitely.
-
-**Sit-n-Go Tournaments** — Increasing blinds, prize payouts, play until one player remains.
-
-Configure tables in `config/tables.toml`:
-```toml
-[[tables]]
-id = "home-game"
-name = "Home Game"
-format = "Cash"
-betting = "NoLimit"
-small_blind = 1.0
-big_blind = 2.0
-min_buy_in = 40.0
-max_buy_in = 200.0
-min_players = 2
-max_players = 6
-```
-
-Tables can include an optional `seed` for reproducible games:
-```toml
-[[tables]]
-id = "tutorial"
-name = "Tutorial Table"
-seed = 42
-# ...
-```
 
 ## Architecture
 ```
