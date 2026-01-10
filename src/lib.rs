@@ -10,6 +10,7 @@ pub mod engine;
 pub mod events;
 pub mod logging;
 pub mod menu;
+pub mod net;
 pub mod players;
 pub mod scenario;
 pub mod strategy;
