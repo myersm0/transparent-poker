@@ -20,13 +20,13 @@ use ratatui::{
 use transparent_poker::bank::Bank;
 use transparent_poker::config::{load_players_auto, load_strategies_auto};
 use transparent_poker::engine::{BettingStructure, GameRunner, RunnerConfig};
-use transparent_poker::events::{GameEvent, PlayerAction, RaiseOptions, Seat, Standing, ValidActions, ViewUpdater};
+use transparent_poker::events::{GameEvent, Seat, Standing, ViewUpdater};
 use transparent_poker::logging::{self, tui as log};
 use transparent_poker::menu::{LobbyPlayer, Menu, MenuResult};
 use transparent_poker::players::{ActionRequest, PlayerResponse, RulesPlayer, TerminalPlayer};
 use transparent_poker::table::{load_tables, BlindClock, GameFormat, TableConfig};
 use transparent_poker::theme::Theme;
-use transparent_poker::tui::TableWidget;
+use transparent_poker::tui::{InputEffect, InputState, TableWidget};
 use transparent_poker::view::TableView;
 
 #[derive(Parser)]
@@ -150,22 +150,6 @@ fn resolve_player_id(player_arg: Option<&str>, bank: &Bank) -> Result<String, St
 	Err("No player specified. Use 'poker play --player <n>' or set POKER_USER.".to_string())
 }
 
-enum InputMode {
-	Watching,
-	AwaitingAction {
-		valid: ValidActions,
-		response_tx: mpsc::Sender<PlayerResponse>,
-	},
-	EnteringRaise {
-		valid: ValidActions,
-		response_tx: mpsc::Sender<PlayerResponse>,
-		amount: f32,
-		min: f32,
-		max: f32,
-	},
-	GameOver,
-}
-
 struct WinnerInfo {
 	seat: Seat,
 	amount: f32,
@@ -232,12 +216,12 @@ fn build_info_lines(table: &TableConfig, seed: Option<u64>) -> Vec<String> {
 struct App {
 	table_view: TableView,
 	view_updater: ViewUpdater,
-	input_mode: InputMode,
+	input_state: InputState,
+	pending_response_tx: Option<mpsc::Sender<PlayerResponse>>,
 	status_message: Option<String>,
 	last_winners: Vec<WinnerInfo>,
 	human_seat: Seat,
 	final_standings: Vec<Standing>,
-	quit_pending: bool,
 	table_config: TableConfig,
 	info_lines: Vec<String>,
 	theme: Theme,
@@ -251,12 +235,12 @@ impl App {
 		Self {
 			table_view,
 			view_updater: ViewUpdater::new(Some(human_seat)),
-			input_mode: InputMode::Watching,
+			input_state: InputState::default(),
+			pending_response_tx: None,
 			status_message: None,
 			last_winners: Vec::new(),
 			human_seat,
 			final_standings: Vec::new(),
-			quit_pending: false,
 			table_config,
 			info_lines,
 			theme,
@@ -285,8 +269,9 @@ impl App {
 			}
 			GameEvent::GameEnded { final_standings, .. } => {
 				self.final_standings = final_standings.clone();
-				self.input_mode = InputMode::GameOver;
-				self.status_message = Some("Game Over! Press 'q' to quit.".to_string());
+				let (state, effect) = InputState::enter_game_over();
+				self.input_state = state;
+				self.execute_effect(effect);
 			}
 			_ => {}
 		}
@@ -311,197 +296,52 @@ impl App {
 			request.valid_actions.call_amount
 		));
 
-		let prompt = self.build_action_prompt(&request.valid_actions);
-		self.status_message = Some(prompt);
-
-		self.input_mode = InputMode::AwaitingAction {
-			valid: request.valid_actions,
-			response_tx: request.response_tx,
-		};
+		self.pending_response_tx = Some(request.response_tx);
+		let (state, effect) = InputState::enter_action_mode(request.valid_actions);
+		self.input_state = state;
+		self.execute_effect(effect);
 	}
 
-	fn build_action_prompt(&self, valid: &ValidActions) -> String {
-		let mut parts = Vec::new();
+	fn execute_effect(&mut self, effect: InputEffect) -> bool {
+		match effect {
+			InputEffect::None => false,
 
-		if valid.can_check {
-			parts.push("[Enter] check".to_string());
-			if valid.raise_options.is_some() {
-				parts.push("[b]et".to_string());
+			InputEffect::SetPrompt(prompt) => {
+				self.status_message = Some(prompt);
+				false
 			}
-		} else if let Some(amt) = valid.call_amount {
-			parts.push(format!("[c]all ${:.0}", amt));
-			if valid.can_fold {
-				parts.push("[f]old".to_string());
+
+			InputEffect::ClearPrompt => {
+				self.status_message = None;
+				false
 			}
-		}
 
-		if valid.raise_options.is_some() && !valid.can_check {
-			parts.push("[r]aise".to_string());
-		}
-
-		if valid.can_all_in {
-			parts.push("[a]ll-in".to_string());
-		}
-
-		parts.join("  ")
-	}
-
-	fn is_awaiting_input(&self) -> bool {
-		matches!(self.input_mode, InputMode::AwaitingAction { .. } | InputMode::EnteringRaise { .. })
-	}
-
-	fn handle_action_key(&mut self, key: KeyCode) -> bool {
-		let mode = std::mem::replace(&mut self.input_mode, InputMode::Watching);
-
-		match mode {
-			InputMode::AwaitingAction { valid, response_tx } => {
-				log::input(&format!("{:?}", key));
-				match key {
-					KeyCode::Char('f') => {
-						if valid.can_fold {
-							log::action("FOLD");
-							let _ = response_tx.send(PlayerResponse::Action(PlayerAction::Fold));
-							self.status_message = None;
-						} else {
-							let prompt = self.build_action_prompt(&valid);
-							self.status_message = Some(format!("Can't fold. {}", prompt));
-							self.input_mode = InputMode::AwaitingAction { valid, response_tx };
-						}
-					}
-					KeyCode::Enter => {
-						if valid.can_check {
-							log::action("CHECK");
-							let _ = response_tx.send(PlayerResponse::Action(PlayerAction::Check));
-							self.status_message = None;
-						} else {
-							self.input_mode = InputMode::AwaitingAction { valid, response_tx };
-						}
-					}
-					KeyCode::Char('c') => {
-						if let Some(amount) = valid.call_amount {
-							log::action(&format!("CALL ${:.0}", amount));
-							let _ = response_tx.send(PlayerResponse::Action(PlayerAction::Call { amount }));
-							self.status_message = None;
-						} else if valid.can_check {
-							log::action("CHECK");
-							let _ = response_tx.send(PlayerResponse::Action(PlayerAction::Check));
-							self.status_message = None;
-						} else {
-							self.input_mode = InputMode::AwaitingAction { valid, response_tx };
-						}
-					}
-					KeyCode::Char('b') => {
-						if valid.can_check {
-							if let Some(ref raise_opts) = valid.raise_options {
-								let bet_amount = match raise_opts {
-									RaiseOptions::Fixed { amount } => *amount,
-									RaiseOptions::Variable { min_raise, max_raise } => {
-										(min_raise * 1.5).min(*max_raise)
-									}
-								};
-								log::action(&format!("BET ${:.0}", bet_amount));
-								let _ = response_tx.send(PlayerResponse::Action(PlayerAction::Bet { amount: bet_amount }));
-								self.status_message = None;
-							} else {
-								self.input_mode = InputMode::AwaitingAction { valid, response_tx };
-							}
-						} else {
-							self.input_mode = InputMode::AwaitingAction { valid, response_tx };
-						}
-					}
-					KeyCode::Char('r') => {
-						if let Some(ref raise_opts) = valid.raise_options {
-							let (min, max) = match raise_opts {
-								RaiseOptions::Fixed { amount } => (*amount, *amount),
-								RaiseOptions::Variable { min_raise, max_raise } => (*min_raise, *max_raise),
-							};
-							self.status_message = Some(format!(
-								"Raise: ${:.0} [←/→ adjust] [Enter confirm] [Esc cancel]",
-								min
-							));
-							self.input_mode = InputMode::EnteringRaise {
-								valid,
-								response_tx,
-								amount: min,
-								min,
-								max,
-							};
-						} else {
-							self.input_mode = InputMode::AwaitingAction { valid, response_tx };
-						}
-					}
-					KeyCode::Char('a') => {
-						if valid.can_all_in {
-							log::action(&format!("ALL-IN ${:.0}", valid.all_in_amount));
-							let _ = response_tx.send(PlayerResponse::Action(PlayerAction::AllIn {
-								amount: valid.all_in_amount,
-							}));
-							self.status_message = None;
-						} else {
-							self.input_mode = InputMode::AwaitingAction { valid, response_tx };
-						}
-					}
-					KeyCode::Char('q') | KeyCode::Esc => {
-						return true;
-					}
-					_ => {
-						self.input_mode = InputMode::AwaitingAction { valid, response_tx };
-					}
+			InputEffect::Respond(response) => {
+				if let Some(tx) = self.pending_response_tx.take() {
+					log::action(&format!("{:?}", response));
+					let _ = tx.send(response);
 				}
+				self.status_message = None;
+				false
 			}
-			InputMode::EnteringRaise { valid, response_tx, amount, min, max } => {
-				match key {
-					KeyCode::Left => {
-						let step = ((max - min) / 10.0).max(1.0);
-						let new_amount = (amount - step).max(min);
-						self.status_message = Some(format!(
-							"Raise: ${:.0} [←/→ adjust] [Enter confirm] [Esc cancel]",
-							new_amount
-						));
-						self.input_mode = InputMode::EnteringRaise {
-							valid,
-							response_tx,
-							amount: new_amount,
-							min,
-							max,
-						};
-					}
-					KeyCode::Right => {
-						let step = ((max - min) / 10.0).max(1.0);
-						let new_amount = (amount + step).min(max);
-						self.status_message = Some(format!(
-							"Raise: ${:.0} [←/→ adjust] [Enter confirm] [Esc cancel]",
-							new_amount
-						));
-						self.input_mode = InputMode::EnteringRaise {
-							valid,
-							response_tx,
-							amount: new_amount,
-							min,
-							max,
-						};
-					}
-					KeyCode::Enter => {
-						log::action(&format!("RAISE ${:.0}", amount));
-						let _ = response_tx.send(PlayerResponse::Action(PlayerAction::Raise { amount }));
-						self.status_message = None;
-					}
-					KeyCode::Esc => {
-						let prompt = self.build_action_prompt(&valid);
-						self.status_message = Some(prompt);
-						self.input_mode = InputMode::AwaitingAction { valid, response_tx };
-					}
-					KeyCode::Char('q') => {
-						return true;
-					}
-					_ => {
-						self.input_mode = InputMode::EnteringRaise { valid, response_tx, amount, min, max };
-					}
-				}
+
+			InputEffect::RequestQuitConfirmation => {
+				self.status_message = Some(
+					"Press 'q' again to quit, any other key to cancel".into(),
+				);
+				false
 			}
-			_ => {}
+
+			InputEffect::Quit => true,
 		}
-		false
+	}
+
+	fn handle_input(&mut self, key: KeyCode) -> bool {
+		log::input(&format!("{:?}", key));
+		let old_state = std::mem::take(&mut self.input_state);
+		let (new_state, effect) = old_state.handle_key(key);
+		self.input_state = new_state;
+		self.execute_effect(effect)
 	}
 }
 
@@ -809,10 +649,10 @@ fn run_game(
 		app.update_winner_highlights();
 		terminal.draw(|f| draw_ui(f, &app))?;
 
-		if app.is_awaiting_input() {
+		if app.input_state.is_awaiting_input() {
 			if let Event::Key(key) = event::read()? {
 				if key.kind == KeyEventKind::Press {
-					if app.handle_action_key(key.code) {
+					if app.handle_input(key.code) {
 						log::event("user quit from action");
 						break;
 					}
@@ -821,11 +661,11 @@ fn run_game(
 			continue;
 		}
 
-		if matches!(app.input_mode, InputMode::GameOver) {
+		if app.input_state.is_game_over() {
 			if event::poll(Duration::from_millis(100))? {
 				if let Event::Key(key) = event::read()? {
 					if key.kind == KeyEventKind::Press {
-						if key.code == KeyCode::Char('q') || key.code == KeyCode::Esc {
+						if app.handle_input(key.code) {
 							log::event("user quit from game over");
 							break;
 						}
@@ -837,7 +677,7 @@ fn run_game(
 
 		match game_handle.event_rx.recv_timeout(Duration::from_millis(50)) {
 			Ok(event) => {
-				app.quit_pending = false;
+				app.input_state = app.input_state.clone().clear_quit_pending();
 
 				let is_human_turn = matches!(
 					&event,
@@ -860,11 +700,11 @@ fn run_game(
 					}
 				} else if delay_ms > 0 {
 					if interruptible_sleep(Duration::from_millis(delay_ms))? {
-						if app.quit_pending {
+						if app.input_state.is_quit_pending() {
 							log::event("user confirmed quit during delay");
 							break;
 						} else {
-							app.quit_pending = true;
+							app.input_state = InputState::Watching { quit_pending: true };
 						}
 					}
 				}
@@ -873,15 +713,9 @@ fn run_game(
 				if event::poll(Duration::from_millis(0))? {
 					if let Event::Key(key) = event::read()? {
 						if key.kind == KeyEventKind::Press {
-							if key.code == KeyCode::Char('q') || key.code == KeyCode::Esc {
-								if app.quit_pending {
-									log::event("user confirmed quit while watching");
-									break;
-								} else {
-									app.quit_pending = true;
-								}
-							} else {
-								app.quit_pending = false;
+							if app.handle_input(key.code) {
+								log::event("user confirmed quit while watching");
+								break;
 							}
 						}
 					}
@@ -968,21 +802,21 @@ fn draw_ui(frame: &mut Frame, app: &App) {
 		.block(Block::default().borders(Borders::ALL).title("Result"));
 	frame.render_widget(winner, winner_area);
 
-	let (status_text, status_title, status_style, border_style) = match &app.input_mode {
-		InputMode::AwaitingAction { .. } | InputMode::EnteringRaise { .. } => (
+	let (status_text, status_title, status_style, border_style) = match &app.input_state {
+		InputState::AwaitingAction { .. } | InputState::EnteringRaise { .. } => (
 			app.status_message.clone().unwrap_or_default(),
 			" Your Turn ",
 			Style::default().fg(app.theme.status_your_turn()).add_modifier(Modifier::BOLD),
 			Style::default().fg(app.theme.status_your_turn_border()),
 		),
-		InputMode::GameOver => (
+		InputState::GameOver => (
 			app.status_message.clone().unwrap_or_else(|| "Game Over!".to_string()),
 			" Game Over ",
 			Style::default().fg(app.theme.status_game_over()).add_modifier(Modifier::BOLD),
 			Style::default().fg(app.theme.status_game_over_border()),
 		),
-		InputMode::Watching => {
-			if app.quit_pending {
+		InputState::Watching { quit_pending } => {
+			if *quit_pending {
 				(
 					"Press 'q' again to quit, any other key to cancel".to_string(),
 					" Quit? ",
