@@ -403,3 +403,333 @@ fn test_stack_conservation() {
 	let total: f32 = final_stacks.iter().sum();
 	assert!((total - 200.0).abs() < 0.01, "Total stacks should be conserved (200), got {}", total);
 }
+
+#[test]
+fn test_fixed_limit_betting() {
+	let config = RunnerConfig {
+		small_blind: 5.0,
+		big_blind: 10.0,
+		starting_stack: 200.0,
+		betting_structure: BettingStructure::FixedLimit,
+		blind_clock: None,
+		max_raises_per_round: 4,
+		rake_percent: 0.0,
+		rake_cap: None,
+		no_flop_no_drop: false,
+		max_hands: Some(5),
+		seed: Some(55555),
+	};
+
+	let (mut runner, handle, _runtime) = create_runner(config);
+
+	let bettor = Arc::new(
+		TestPlayer::new(Seat(0), "Bettor")
+			.with_actions(vec![
+				PlayerAction::Raise { amount: 20.0 }, // Should be capped to fixed amount
+			])
+			.with_default(PlayerAction::Check)
+	);
+	let caller = Arc::new(
+		TestPlayer::new(Seat(1), "Caller")
+			.with_default(PlayerAction::Call { amount: 0.0 })
+	);
+
+	runner.add_player(bettor);
+	runner.add_player(caller);
+	runner.run();
+
+	// Game should complete without errors
+	let mut saw_game_ended = false;
+	while let Ok(event) = handle.event_rx.try_recv() {
+		if matches!(event, GameEvent::GameEnded { .. }) {
+			saw_game_ended = true;
+		}
+	}
+	assert!(saw_game_ended, "Fixed-limit game should complete");
+}
+
+#[test]
+fn test_pot_limit_betting() {
+	let config = RunnerConfig {
+		small_blind: 5.0,
+		big_blind: 10.0,
+		starting_stack: 200.0,
+		betting_structure: BettingStructure::PotLimit,
+		blind_clock: None,
+		max_raises_per_round: 4,
+		rake_percent: 0.0,
+		rake_cap: None,
+		no_flop_no_drop: false,
+		max_hands: Some(5),
+		seed: Some(66666),
+	};
+
+	let (mut runner, handle, _runtime) = create_runner(config);
+
+	let bettor = Arc::new(
+		TestPlayer::new(Seat(0), "Bettor")
+			.with_actions(vec![
+				PlayerAction::Raise { amount: 35.0 }, // Pot-sized raise
+			])
+			.with_default(PlayerAction::Check)
+	);
+	let caller = Arc::new(
+		TestPlayer::new(Seat(1), "Caller")
+			.with_default(PlayerAction::Call { amount: 0.0 })
+	);
+
+	runner.add_player(bettor);
+	runner.add_player(caller);
+	runner.run();
+
+	let mut saw_game_ended = false;
+	while let Ok(event) = handle.event_rx.try_recv() {
+		if matches!(event, GameEvent::GameEnded { .. }) {
+			saw_game_ended = true;
+		}
+	}
+	assert!(saw_game_ended, "Pot-limit game should complete");
+}
+
+#[test]
+fn test_multiway_pot() {
+	let config = RunnerConfig {
+		small_blind: 5.0,
+		big_blind: 10.0,
+		starting_stack: 100.0,
+		betting_structure: BettingStructure::NoLimit,
+		blind_clock: None,
+		max_raises_per_round: 4,
+		rake_percent: 0.0,
+		rake_cap: None,
+		no_flop_no_drop: false,
+		max_hands: Some(3),
+		seed: Some(88888),
+	};
+
+	let (mut runner, handle, _runtime) = create_runner(config);
+
+	// Everyone calls, creating a multiway pot
+	let p1 = Arc::new(
+		TestPlayer::new(Seat(0), "P1")
+			.with_default(PlayerAction::Call { amount: 0.0 })
+	);
+	let p2 = Arc::new(
+		TestPlayer::new(Seat(1), "P2")
+			.with_default(PlayerAction::Call { amount: 0.0 })
+	);
+	let p3 = Arc::new(
+		TestPlayer::new(Seat(2), "P3")
+			.with_default(PlayerAction::Call { amount: 0.0 })
+	);
+	let p4 = Arc::new(
+		TestPlayer::new(Seat(3), "P4")
+			.with_default(PlayerAction::Fold)
+	);
+
+	runner.add_player(p1);
+	runner.add_player(p2);
+	runner.add_player(p3);
+	runner.add_player(p4);
+	runner.run();
+
+	let mut player_count = 0;
+	let mut saw_pot_awarded = false;
+
+	while let Ok(event) = handle.event_rx.try_recv() {
+		match event {
+			GameEvent::PlayerJoined { .. } => player_count += 1,
+			GameEvent::PotAwarded { .. } => saw_pot_awarded = true,
+			_ => {}
+		}
+	}
+
+	assert_eq!(player_count, 4, "Should have 4 players");
+	assert!(saw_pot_awarded, "Should award pot");
+}
+
+#[test]
+fn test_side_pot_creation() {
+	let config = RunnerConfig {
+		small_blind: 5.0,
+		big_blind: 10.0,
+		starting_stack: 50.0,
+		betting_structure: BettingStructure::NoLimit,
+		blind_clock: None,
+		max_raises_per_round: 4,
+		rake_percent: 0.0,
+		rake_cap: None,
+		no_flop_no_drop: false,
+		max_hands: Some(1),
+		seed: Some(99991),
+	};
+
+	let (mut runner, handle, _runtime) = create_runner(config);
+
+	// Player with less chips goes all-in, others call
+	let short_stack = Arc::new(
+		TestPlayer::new(Seat(0), "ShortStack")
+			.with_actions(vec![PlayerAction::AllIn { amount: 50.0 }])
+			.with_default(PlayerAction::Check)
+	);
+	let caller1 = Arc::new(
+		TestPlayer::new(Seat(1), "Caller1")
+			.with_default(PlayerAction::Call { amount: 0.0 })
+	);
+	let caller2 = Arc::new(
+		TestPlayer::new(Seat(2), "Caller2")
+			.with_default(PlayerAction::Call { amount: 0.0 })
+	);
+
+	runner.add_player(short_stack);
+	runner.add_player(caller1);
+	runner.add_player(caller2);
+	runner.run();
+
+	let mut pot_awards = 0;
+	while let Ok(event) = handle.event_rx.try_recv() {
+		if matches!(event, GameEvent::PotAwarded { .. }) {
+			pot_awards += 1;
+		}
+	}
+
+	// Should complete without crashing (side pot logic)
+	assert!(pot_awards >= 1, "Should award at least one pot");
+}
+
+#[test]
+fn test_game_with_rake() {
+	let config = RunnerConfig {
+		small_blind: 5.0,
+		big_blind: 10.0,
+		starting_stack: 100.0,
+		betting_structure: BettingStructure::NoLimit,
+		blind_clock: None,
+		max_raises_per_round: 4,
+		rake_percent: 0.05, // 5% rake
+		rake_cap: Some(5.0), // $5 cap
+		no_flop_no_drop: true,
+		max_hands: Some(5),
+		seed: Some(11112),
+	};
+
+	let (mut runner, handle, _runtime) = create_runner(config);
+
+	let p1 = Arc::new(
+		TestPlayer::new(Seat(0), "P1")
+			.with_default(PlayerAction::Call { amount: 0.0 })
+	);
+	let p2 = Arc::new(
+		TestPlayer::new(Seat(1), "P2")
+			.with_default(PlayerAction::Fold)
+	);
+
+	runner.add_player(p1);
+	runner.add_player(p2);
+	runner.run();
+
+	let mut final_stacks = Vec::new();
+	while let Ok(event) = handle.event_rx.try_recv() {
+		if let GameEvent::GameEnded { final_standings, .. } = event {
+			final_stacks = final_standings.iter().map(|s| s.final_stack).collect();
+		}
+	}
+
+	let total: f32 = final_stacks.iter().sum();
+	// With rake, total should be less than starting (200)
+	// But with no_flop_no_drop and folding preflop, no rake is taken
+	assert!(total <= 200.0, "Total with rake should be <= starting");
+}
+
+#[test]
+fn test_elimination_order() {
+	let config = RunnerConfig {
+		small_blind: 25.0,
+		big_blind: 50.0,
+		starting_stack: 100.0,
+		betting_structure: BettingStructure::NoLimit,
+		blind_clock: None,
+		max_raises_per_round: 4,
+		rake_percent: 0.0,
+		rake_cap: None,
+		no_flop_no_drop: false,
+		max_hands: Some(20),
+		seed: Some(22223),
+	};
+
+	let (mut runner, handle, _runtime) = create_runner(config);
+
+	// High blinds relative to stack = quick eliminations
+	let p1 = Arc::new(
+		TestPlayer::new(Seat(0), "P1")
+			.with_default(PlayerAction::AllIn { amount: 100.0 })
+	);
+	let p2 = Arc::new(
+		TestPlayer::new(Seat(1), "P2")
+			.with_default(PlayerAction::Fold)
+	);
+	let p3 = Arc::new(
+		TestPlayer::new(Seat(2), "P3")
+			.with_default(PlayerAction::Fold)
+	);
+
+	runner.add_player(p1);
+	runner.add_player(p2);
+	runner.add_player(p3);
+	runner.run();
+
+	let mut standings = Vec::new();
+	while let Ok(event) = handle.event_rx.try_recv() {
+		if let GameEvent::GameEnded { final_standings, .. } = event {
+			standings = final_standings;
+		}
+	}
+
+	// Check finish positions are assigned
+	assert!(!standings.is_empty(), "Should have standings");
+	let positions: Vec<u8> = standings.iter().map(|s| s.finish_position).collect();
+	assert!(positions.contains(&1), "Should have 1st place");
+}
+
+#[test]
+fn test_button_rotation() {
+	let config = RunnerConfig {
+		small_blind: 5.0,
+		big_blind: 10.0,
+		starting_stack: 500.0,
+		betting_structure: BettingStructure::NoLimit,
+		blind_clock: None,
+		max_raises_per_round: 4,
+		rake_percent: 0.0,
+		rake_cap: None,
+		no_flop_no_drop: false,
+		max_hands: Some(4),
+		seed: Some(33334),
+	};
+
+	let (mut runner, handle, _runtime) = create_runner(config);
+
+	let p1 = Arc::new(TestPlayer::new(Seat(0), "P1").with_default(PlayerAction::Fold));
+	let p2 = Arc::new(TestPlayer::new(Seat(1), "P2").with_default(PlayerAction::Fold));
+	let p3 = Arc::new(TestPlayer::new(Seat(2), "P3").with_default(PlayerAction::Fold));
+
+	runner.add_player(p1);
+	runner.add_player(p2);
+	runner.add_player(p3);
+	runner.run();
+
+	let mut buttons = Vec::new();
+	while let Ok(event) = handle.event_rx.try_recv() {
+		if let GameEvent::HandStarted { button, .. } = event {
+			buttons.push(button);
+		}
+	}
+
+	// Button should rotate (not all same seat)
+	assert!(buttons.len() >= 2, "Should have multiple hands");
+	if buttons.len() >= 3 {
+		// With 3+ hands and 3 players, button should have moved
+		let unique: std::collections::HashSet<_> = buttons.iter().collect();
+		assert!(unique.len() > 1, "Button should rotate between players");
+	}
+}

@@ -76,6 +76,15 @@ impl Bank {
 		})
 	}
 
+	#[cfg(test)]
+	pub fn new_for_testing(profiles: HashMap<String, PlayerProfile>) -> Self {
+		Self {
+			profiles,
+			default_bankroll: 1000.0,
+			path: PathBuf::from("/tmp/test.toml"),
+		}
+	}
+
 	fn config_path() -> Result<PathBuf, String> {
 		if let Some(config_dir) = dirs::config_dir() {
 			let dir = config_dir.join("transparent-poker");

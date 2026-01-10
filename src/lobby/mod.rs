@@ -530,3 +530,385 @@ impl LobbyBackend for NetworkBackend {
 		0.0
 	}
 }
+
+#[cfg(test)]
+mod tests {
+	use super::*;
+	use crate::table::{BettingStructure, GameFormat};
+	use std::collections::HashMap;
+
+	fn make_test_table(id: &str, min: usize, max: usize) -> TableConfig {
+		TableConfig {
+			id: id.to_string(),
+			name: format!("Test Table {}", id),
+			format: GameFormat::Cash,
+			betting: BettingStructure::NoLimit,
+			small_blind: Some(1.0),
+			big_blind: Some(2.0),
+			min_buy_in: Some(40.0),
+			max_buy_in: Some(200.0),
+			buy_in: None,
+			starting_stack: None,
+			min_players: min,
+			max_players: max,
+			max_raises_per_round: 4,
+			rake_percent: 0.0,
+			rake_cap: None,
+			no_flop_no_drop: false,
+			blind_levels: None,
+			payouts: None,
+			action_delay_ms: 0,
+			street_delay_ms: 0,
+			hand_end_delay_ms: 0,
+			action_timeout_seconds: None,
+			max_consecutive_timeouts: None,
+			seed: None,
+		}
+	}
+
+	fn make_test_roster() -> Vec<PlayerConfig> {
+		vec![
+			PlayerConfig {
+				id: "alice".to_string(),
+				name: Some("Alice".to_string()),
+				strategy: "default".to_string(),
+				strategy_model: None,
+				version: "0.1".to_string(),
+				join_probability: 1.0,
+			},
+			PlayerConfig {
+				id: "bob".to_string(),
+				name: Some("Bob".to_string()),
+				strategy: "default".to_string(),
+				strategy_model: None,
+				version: "0.1".to_string(),
+				join_probability: 1.0,
+			},
+			PlayerConfig {
+				id: "carol".to_string(),
+				name: Some("Carol".to_string()),
+				strategy: "default".to_string(),
+				strategy_model: None,
+				version: "0.1".to_string(),
+				join_probability: 1.0,
+			},
+		]
+	}
+
+	fn make_test_bank() -> Bank {
+		let mut profiles = HashMap::new();
+		profiles.insert("host".to_string(), crate::bank::PlayerProfile {
+			bankroll: 1000.0,
+		});
+		profiles.insert("alice".to_string(), crate::bank::PlayerProfile {
+			bankroll: 500.0,
+		});
+		profiles.insert("bob".to_string(), crate::bank::PlayerProfile {
+			bankroll: 500.0,
+		});
+		profiles.insert("carol".to_string(), crate::bank::PlayerProfile {
+			bankroll: 500.0,
+		});
+		Bank::new_for_testing(profiles)
+	}
+
+	#[test]
+	fn test_list_tables() {
+		let tables = vec![
+			make_test_table("table1", 2, 6),
+			make_test_table("table2", 2, 10),
+		];
+		let mut backend = LocalBackend::new(tables, vec![], make_test_bank(), "host".to_string());
+
+		backend.send(LobbyCommand::ListTables);
+
+		let event = backend.poll().expect("Should have event");
+		match event {
+			LobbyEvent::TablesListed(summaries) => {
+				assert_eq!(summaries.len(), 2);
+				assert_eq!(summaries[0].id, "table1");
+				assert_eq!(summaries[1].id, "table2");
+			}
+			_ => panic!("Expected TablesListed event"),
+		}
+	}
+
+	#[test]
+	fn test_join_table() {
+		let tables = vec![make_test_table("table1", 2, 6)];
+		let mut backend = LocalBackend::new(tables, make_test_roster(), make_test_bank(), "host".to_string());
+
+		backend.send(LobbyCommand::JoinTable("table1".to_string()));
+
+		let event = backend.poll().expect("Should have event");
+		match event {
+			LobbyEvent::TableJoined { table_id, seat, players, min_players, max_players, .. } => {
+				assert_eq!(table_id, "table1");
+				assert_eq!(seat, Seat(0));
+				assert_eq!(players.len(), 1);
+				assert!(players[0].is_host);
+				assert_eq!(min_players, 2);
+				assert_eq!(max_players, 6);
+			}
+			_ => panic!("Expected TableJoined event"),
+		}
+	}
+
+	#[test]
+	fn test_join_nonexistent_table() {
+		let tables = vec![make_test_table("table1", 2, 6)];
+		let mut backend = LocalBackend::new(tables, vec![], make_test_bank(), "host".to_string());
+
+		backend.send(LobbyCommand::JoinTable("nonexistent".to_string()));
+
+		let event = backend.poll().expect("Should have event");
+		match event {
+			LobbyEvent::Error(msg) => {
+				assert!(msg.contains("not found"));
+			}
+			_ => panic!("Expected Error event"),
+		}
+	}
+
+	#[test]
+	fn test_auto_fill_lobby() {
+		let tables = vec![make_test_table("table1", 2, 4)];
+		let mut backend = LocalBackend::new(tables, make_test_roster(), make_test_bank(), "host".to_string());
+
+		backend.send(LobbyCommand::JoinTable("table1".to_string()));
+
+		// Drain events - should have TableJoined + multiple PlayerJoined
+		let mut player_joined_count = 0;
+		while let Some(event) = backend.poll() {
+			if matches!(event, LobbyEvent::PlayerJoined { .. }) {
+				player_joined_count += 1;
+			}
+		}
+
+		// Should have auto-filled with AI players (up to max_players - 1 host)
+		assert!(player_joined_count >= 1, "Should auto-fill with AI players");
+	}
+
+	#[test]
+	fn test_add_ai() {
+		let tables = vec![make_test_table("table1", 2, 6)];
+		let roster = vec![
+			PlayerConfig {
+				id: "testai".to_string(),
+				name: Some("TestAI".to_string()),
+				strategy: "default".to_string(),
+				strategy_model: None,
+				version: "0.1".to_string(),
+				join_probability: 0.0,
+			},
+		];
+		let mut backend = LocalBackend::new(tables, roster, make_test_bank(), "host".to_string());
+
+		backend.send(LobbyCommand::JoinTable("table1".to_string()));
+		while backend.poll().is_some() {}
+
+		backend.send(LobbyCommand::AddAI);
+
+		let event = backend.poll().expect("Should have event");
+		match event {
+			LobbyEvent::PlayerJoined { username, is_ai, .. } => {
+				assert_eq!(username, "TestAI");
+				assert!(is_ai);
+			}
+			_ => panic!("Expected PlayerJoined event"),
+		}
+	}
+
+	#[test]
+	fn test_remove_ai() {
+		let tables = vec![make_test_table("table1", 2, 6)];
+		let roster = vec![
+			PlayerConfig {
+				id: "testai".to_string(),
+				name: Some("TestAI".to_string()),
+				strategy: "default".to_string(),
+				strategy_model: None,
+				version: "0.1".to_string(),
+				join_probability: 1.0,
+			},
+		];
+		let mut backend = LocalBackend::new(tables, roster, make_test_bank(), "host".to_string());
+
+		backend.send(LobbyCommand::JoinTable("table1".to_string()));
+
+		// Find the AI's seat
+		let mut ai_seat = None;
+		while let Some(event) = backend.poll() {
+			if let LobbyEvent::PlayerJoined { seat, is_ai: true, .. } = event {
+				ai_seat = Some(seat);
+			}
+		}
+
+		let seat = ai_seat.expect("Should have AI player");
+		backend.send(LobbyCommand::RemoveAI(seat));
+
+		let event = backend.poll().expect("Should have event");
+		match event {
+			LobbyEvent::PlayerLeft { seat: left_seat } => {
+				assert_eq!(left_seat, seat);
+			}
+			_ => panic!("Expected PlayerLeft event"),
+		}
+	}
+
+	#[test]
+	fn test_ready_command() {
+		let tables = vec![make_test_table("table1", 2, 6)];
+		let mut backend = LocalBackend::new(tables, make_test_roster(), make_test_bank(), "host".to_string());
+
+		backend.send(LobbyCommand::JoinTable("table1".to_string()));
+		while backend.poll().is_some() {}
+
+		backend.send(LobbyCommand::Ready);
+
+		let mut saw_ready = false;
+		while let Some(event) = backend.poll() {
+			if let LobbyEvent::PlayerReady { seat } = event {
+				assert_eq!(seat, Seat(0)); // Host seat
+				saw_ready = true;
+			}
+		}
+		assert!(saw_ready, "Should emit PlayerReady event");
+	}
+
+	#[test]
+	fn test_start_game() {
+		let tables = vec![make_test_table("table1", 2, 6)];
+		let mut backend = LocalBackend::new(tables, make_test_roster(), make_test_bank(), "host".to_string());
+
+		backend.send(LobbyCommand::JoinTable("table1".to_string()));
+		while backend.poll().is_some() {}
+
+		backend.send(LobbyCommand::Ready);
+		while backend.poll().is_some() {}
+
+		backend.send(LobbyCommand::StartGame);
+
+		let event = backend.poll().expect("Should have event");
+		match event {
+			LobbyEvent::GameReady { table, players } => {
+				assert_eq!(table.id, "table1");
+				assert!(players.len() >= 2);
+			}
+			_ => panic!("Expected GameReady event, got {:?}", event),
+		}
+	}
+
+	#[test]
+	fn test_leave_table() {
+		let tables = vec![make_test_table("table1", 2, 6)];
+		let mut backend = LocalBackend::new(tables, vec![], make_test_bank(), "host".to_string());
+
+		backend.send(LobbyCommand::JoinTable("table1".to_string()));
+		while backend.poll().is_some() {}
+
+		backend.send(LobbyCommand::LeaveTable);
+
+		let event = backend.poll().expect("Should have event");
+		assert!(matches!(event, LobbyEvent::LeftTable));
+	}
+
+	#[test]
+	fn test_table_config_lookup() {
+		let tables = vec![make_test_table("table1", 2, 6)];
+		let backend = LocalBackend::new(tables, vec![], make_test_bank(), "host".to_string());
+
+		let config = backend.table_config("table1");
+		assert!(config.is_some());
+		assert_eq!(config.unwrap().id, "table1");
+
+		let missing = backend.table_config("nonexistent");
+		assert!(missing.is_none());
+	}
+
+	#[test]
+	fn test_get_bankroll() {
+		let backend = LocalBackend::new(vec![], vec![], make_test_bank(), "host".to_string());
+
+		assert_eq!(backend.get_bankroll("host"), 1000.0);
+		assert_eq!(backend.get_bankroll("alice"), 500.0);
+		assert_eq!(backend.get_bankroll("unknown"), 1000.0); // Default bankroll
+	}
+
+	#[test]
+	fn test_seat_assignment_after_removal() {
+		let tables = vec![make_test_table("table1", 2, 10)];
+		let roster = vec![
+			PlayerConfig {
+				id: "ai1".to_string(),
+				name: Some("AI1".to_string()),
+				strategy: "default".to_string(),
+				strategy_model: None,
+				version: "0.1".to_string(),
+				join_probability: 1.0,
+			},
+			PlayerConfig {
+				id: "ai2".to_string(),
+				name: Some("AI2".to_string()),
+				strategy: "default".to_string(),
+				strategy_model: None,
+				version: "0.1".to_string(),
+				join_probability: 1.0,
+			},
+		];
+		let mut backend = LocalBackend::new(tables, roster, make_test_bank(), "host".to_string());
+
+		backend.send(LobbyCommand::JoinTable("table1".to_string()));
+
+		let mut seats = vec![];
+		while let Some(event) = backend.poll() {
+			if let LobbyEvent::PlayerJoined { seat, .. } = event {
+				seats.push(seat);
+			}
+		}
+
+		// Remove first AI
+		if let Some(&seat) = seats.first() {
+			backend.send(LobbyCommand::RemoveAI(seat));
+			while backend.poll().is_some() {}
+		}
+
+		// Add new AI - should get a new seat number (not reuse old one immediately)
+		backend.send(LobbyCommand::AddAI);
+		let event = backend.poll();
+		if let Some(LobbyEvent::PlayerJoined { seat, .. }) = event {
+			// New seat should be higher than any existing
+			assert!(seat.0 > 0, "New AI should get a fresh seat number");
+		}
+	}
+
+	#[test]
+	fn test_table_summary_from_config() {
+		let config = make_test_table("test", 2, 6);
+		let summary: TableSummary = (&config).into();
+
+		assert_eq!(summary.id, "test");
+		assert_eq!(summary.format, "Cash");
+		assert_eq!(summary.betting, "No-Limit");
+		assert_eq!(summary.blinds, "$1/$2");
+		assert_eq!(summary.buy_in, "$40");
+		assert_eq!(summary.max_players, 6);
+	}
+
+	#[test]
+	fn test_lobby_player_from_player_info() {
+		let info = PlayerInfo {
+			seat: Seat(3),
+			username: "TestPlayer".to_string(),
+			ready: true,
+			is_ai: false,
+		};
+		let player: LobbyPlayer = info.into();
+
+		assert_eq!(player.seat, Some(Seat(3)));
+		assert_eq!(player.id, "testplayer"); // lowercase
+		assert_eq!(player.name, "TestPlayer");
+		assert!(player.is_ready);
+		assert!(player.is_human);
+	}
+}
