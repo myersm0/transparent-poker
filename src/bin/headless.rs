@@ -22,7 +22,10 @@ fn main() {
 		seed: None,
 	};
 
-	let (mut runner, handle) = GameRunner::new(config);
+	let runtime = tokio::runtime::Runtime::new().expect("Failed to create tokio runtime");
+	let runtime_handle = runtime.handle().clone();
+
+	let (mut runner, handle) = GameRunner::new(config, runtime_handle);
 
 	let alice = Arc::new(
 		TestPlayer::new(Seat(0), "Alice")

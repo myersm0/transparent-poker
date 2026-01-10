@@ -1,7 +1,7 @@
-use std::sync::mpsc;
 use std::sync::Mutex;
 use std::collections::VecDeque;
 
+use async_trait::async_trait;
 use crate::events::{GameEvent, PlayerAction, Seat, ValidActions};
 use crate::players::port::{PlayerPort, PlayerResponse, GameSnapshot};
 
@@ -43,15 +43,14 @@ impl TestPlayer {
 	}
 }
 
+#[async_trait]
 impl PlayerPort for TestPlayer {
-	fn request_action(
+	async fn request_action(
 		&self,
 		_seat: Seat,
 		valid_actions: ValidActions,
 		_game_state: &GameSnapshot,
-	) -> mpsc::Receiver<PlayerResponse> {
-		let (tx, rx) = mpsc::channel();
-
+	) -> PlayerResponse {
 		let action = self
 			.scripted_actions
 			.lock()
@@ -60,9 +59,7 @@ impl PlayerPort for TestPlayer {
 			.unwrap_or_else(|| self.default_action.clone());
 
 		let validated = validate_action(action, &valid_actions);
-
-		let _ = tx.send(PlayerResponse::Action(validated));
-		rx
+		PlayerResponse::Action(validated)
 	}
 
 	fn notify(&self, event: &GameEvent) {
@@ -141,15 +138,14 @@ impl CallingPlayer {
 	}
 }
 
+#[async_trait]
 impl PlayerPort for CallingPlayer {
-	fn request_action(
+	async fn request_action(
 		&self,
 		_seat: Seat,
 		valid_actions: ValidActions,
 		_game_state: &GameSnapshot,
-	) -> mpsc::Receiver<PlayerResponse> {
-		let (tx, rx) = mpsc::channel();
-
+	) -> PlayerResponse {
 		let action = if valid_actions.can_check {
 			PlayerAction::Check
 		} else if let Some(amount) = valid_actions.call_amount {
@@ -158,8 +154,7 @@ impl PlayerPort for CallingPlayer {
 			PlayerAction::Fold
 		};
 
-		let _ = tx.send(PlayerResponse::Action(action));
-		rx
+		PlayerResponse::Action(action)
 	}
 
 	fn notify(&self, _event: &GameEvent) {}
@@ -191,23 +186,21 @@ impl FoldingPlayer {
 	}
 }
 
+#[async_trait]
 impl PlayerPort for FoldingPlayer {
-	fn request_action(
+	async fn request_action(
 		&self,
 		_seat: Seat,
 		valid_actions: ValidActions,
 		_game_state: &GameSnapshot,
-	) -> mpsc::Receiver<PlayerResponse> {
-		let (tx, rx) = mpsc::channel();
-
+	) -> PlayerResponse {
 		let action = if valid_actions.can_check {
 			PlayerAction::Check
 		} else {
 			PlayerAction::Fold
 		};
 
-		let _ = tx.send(PlayerResponse::Action(action));
-		rx
+		PlayerResponse::Action(action)
 	}
 
 	fn notify(&self, _event: &GameEvent) {}

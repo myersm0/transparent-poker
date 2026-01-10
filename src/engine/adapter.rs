@@ -1,6 +1,7 @@
 use std::sync::{Arc, Mutex, mpsc::Sender};
 use rs_poker::arena::{Agent, GameState, action::AgentAction};
 use rs_poker::arena::game_state::Round;
+use tokio::runtime::Handle;
 
 use crate::events::{
 	Card, GameEvent, PlayerAction, Position, RaiseOptions, Seat, Street, ValidActions,
@@ -15,6 +16,7 @@ pub struct PlayerAdapter {
 	betting_structure: BettingStructure,
 	event_tx: Sender<GameEvent>,
 	max_raises_per_round: u32,
+	runtime_handle: Handle,
 }
 
 #[derive(Debug, Clone, Copy)]
@@ -32,6 +34,7 @@ impl PlayerAdapter {
 		action_history: Arc<Mutex<Vec<ActionRecord>>>,
 		event_tx: Sender<GameEvent>,
 		max_raises_per_round: u32,
+		runtime_handle: Handle,
 	) -> Self {
 		Self {
 			port,
@@ -41,6 +44,7 @@ impl PlayerAdapter {
 			betting_structure,
 			event_tx,
 			max_raises_per_round,
+			runtime_handle,
 		}
 	}
 
@@ -260,18 +264,15 @@ impl Agent for PlayerAdapter {
 			time_limit: None,
 		});
 
-		let rx = self.port.request_action(self.seat, valid_actions.clone(), &snapshot);
+		let port = Arc::clone(&self.port);
+		let seat = self.seat;
+		let va = valid_actions.clone();
 
-		match rx.recv() {
-			Ok(response) => self.convert_response(response, &valid_actions),
-			Err(_) => {
-				if valid_actions.can_check {
-					AgentAction::Call
-				} else {
-					AgentAction::Fold
-				}
-			}
-		}
+		let response = self.runtime_handle.block_on(async move {
+			port.request_action(seat, va, &snapshot).await
+		});
+
+		self.convert_response(response, &valid_actions)
 	}
 }
 

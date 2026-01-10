@@ -589,7 +589,11 @@ fn run_game(
 		seed,
 	};
 
-	let (mut runner, game_handle) = GameRunner::new(config);
+	let runtime = tokio::runtime::Runtime::new()
+		.map_err(|e| io::Error::new(io::ErrorKind::Other, e))?;
+	let runtime_handle = runtime.handle().clone();
+
+	let (mut runner, game_handle) = GameRunner::new(config, runtime_handle);
 
 	let mut shuffled_players = lobby_players.clone();
 	if let Some(s) = seed {

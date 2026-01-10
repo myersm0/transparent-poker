@@ -2,6 +2,7 @@ use std::sync::{mpsc, Arc, Mutex};
 use rand::{Rng, SeedableRng};
 use rand::rngs::StdRng;
 use rs_poker::arena::{Agent, GameState, HoldemSimulationBuilder};
+use tokio::runtime::Handle;
 
 use crate::events::{
 	Blinds, BettingStructure as EventBettingStructure, GameConfig, GameEndReason, GameEvent,
@@ -21,6 +22,7 @@ pub struct GameRunner {
 	action_history: Arc<Mutex<Vec<ActionRecord>>>,
 	blind_clock: Option<BlindClock>,
 	rng: StdRng,
+	runtime_handle: Handle,
 }
 
 pub struct RunnerConfig {
@@ -61,7 +63,7 @@ pub struct GameHandle {
 }
 
 impl GameRunner {
-	pub fn new(config: RunnerConfig) -> (Self, GameHandle) {
+	pub fn new(config: RunnerConfig, runtime_handle: Handle) -> (Self, GameHandle) {
 		let (event_tx, event_rx) = mpsc::channel();
 		let blind_clock = config.blind_clock.clone();
 
@@ -80,6 +82,7 @@ impl GameRunner {
 			action_history: Arc::new(Mutex::new(Vec::new())),
 			blind_clock,
 			rng,
+			runtime_handle,
 		};
 
 		let handle = GameHandle { event_rx, game_id };
@@ -240,6 +243,7 @@ impl GameRunner {
 							Arc::clone(&self.action_history),
 							self.event_tx.clone(),
 							self.config.max_raises_per_round,
+							self.runtime_handle.clone(),
 						)) as Box<dyn Agent>
 					}
 				})

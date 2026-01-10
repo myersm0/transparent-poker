@@ -1,5 +1,6 @@
 use std::sync::mpsc::{self, Receiver, Sender};
 
+use async_trait::async_trait;
 use crate::events::{GameEvent, Seat, ValidActions};
 use crate::players::{GameSnapshot, PlayerPort, PlayerResponse};
 
@@ -36,13 +37,14 @@ impl TerminalPlayer {
 	}
 }
 
+#[async_trait]
 impl PlayerPort for TerminalPlayer {
-	fn request_action(
+	async fn request_action(
 		&self,
 		seat: Seat,
 		valid_actions: ValidActions,
 		game_state: &GameSnapshot,
-	) -> Receiver<PlayerResponse> {
+	) -> PlayerResponse {
 		let (response_tx, response_rx) = mpsc::channel();
 
 		let request = ActionRequest {
@@ -54,7 +56,7 @@ impl PlayerPort for TerminalPlayer {
 
 		let _ = self.action_tx.send(request);
 
-		response_rx
+		response_rx.recv().unwrap_or(PlayerResponse::Timeout)
 	}
 
 	fn notify(&self, _event: &GameEvent) {}
