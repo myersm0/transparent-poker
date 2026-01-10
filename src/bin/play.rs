@@ -294,7 +294,7 @@ impl NetworkApp {
 					self.screen = NetworkScreen::Table;
 				}
 				ServerMessage::PlayerJoinedTable { seat, username } => {
-					self.players.push(PlayerInfo { seat, username, ready: false });
+					self.players.push(PlayerInfo { seat, username, ready: false, is_ai: false });
 				}
 				ServerMessage::PlayerLeftTable { seat, .. } => {
 					self.players.retain(|p| p.seat != seat);
@@ -306,6 +306,12 @@ impl NetworkApp {
 					if Some(seat) == self.my_seat {
 						self.is_ready = true;
 					}
+				}
+				ServerMessage::AIAdded { seat, name } => {
+					self.players.push(PlayerInfo { seat, username: name, ready: true, is_ai: true });
+				}
+				ServerMessage::AIRemoved { seat } => {
+					self.players.retain(|p| p.seat != seat);
 				}
 				ServerMessage::GameStarting { .. } => {}
 				ServerMessage::GameEvent(event) => {
@@ -435,6 +441,9 @@ fn handle_network_table_input(app: &mut NetworkApp, key: KeyCode) {
 				let _ = app.client.ready();
 			}
 		}
+		KeyCode::Char('a') => {
+			let _ = app.client.add_ai(None);
+		}
 		KeyCode::Char('l') | KeyCode::Esc => {
 			let _ = app.client.leave_table();
 			app.current_table = None;
@@ -512,17 +521,21 @@ fn draw_network_table(f: &mut Frame, app: &NetworkApp) {
 	let items: Vec<ListItem> = app.players.iter().map(|p| {
 		let ready_str = if p.ready { "✓ Ready" } else { "  Waiting" };
 		let is_me = Some(p.seat) == app.my_seat;
+		let ai_marker = if p.is_ai { " [AI]" } else { "" };
 		let style = if is_me {
 			Style::default().fg(Color::Cyan).add_modifier(Modifier::BOLD)
+		} else if p.is_ai {
+			Style::default().fg(Color::Magenta)
 		} else if p.ready {
 			Style::default().fg(Color::Green)
 		} else {
 			Style::default()
 		};
 		let line = format!(
-			"Seat {}: {} {} {}",
+			"Seat {}: {}{} {} {}",
 			p.seat.0,
 			p.username,
+			ai_marker,
 			ready_str,
 			if is_me { "(you)" } else { "" }
 		);
@@ -534,9 +547,9 @@ fn draw_network_table(f: &mut Frame, app: &NetworkApp) {
 	f.render_widget(list, chunks[1]);
 
 	let help_text = if app.is_ready {
-		"Waiting for other players...  L Leave  Q Quit"
+		"Waiting for others...  A Add AI  L Leave  Q Quit"
 	} else {
-		"R Ready  L Leave  Q Quit"
+		"R Ready  A Add AI  L Leave  Q Quit"
 	};
 	let help = Paragraph::new(help_text)
 		.style(Style::default().fg(Color::DarkGray))

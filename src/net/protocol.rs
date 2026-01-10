@@ -13,6 +13,12 @@ pub enum ClientMessage {
 	},
 	LeaveTable,
 	Ready,
+	AddAI {
+		strategy: Option<String>,
+	},
+	RemoveAI {
+		seat: Seat,
+	},
 	Action {
 		#[serde(flatten)]
 		action: PlayerAction,
@@ -54,6 +60,13 @@ pub enum ServerMessage {
 	PlayerReady {
 		seat: Seat,
 	},
+	AIAdded {
+		seat: Seat,
+		name: String,
+	},
+	AIRemoved {
+		seat: Seat,
+	},
 	GameStarting {
 		countdown: u32,
 	},
@@ -89,6 +102,8 @@ pub struct PlayerInfo {
 	pub seat: Seat,
 	pub username: String,
 	pub ready: bool,
+	#[serde(default)]
+	pub is_ai: bool,
 }
 
 pub fn encode_message<T: Serialize>(msg: &T) -> Vec<u8> {

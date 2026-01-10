@@ -67,6 +67,14 @@ impl GameClient {
 		self.send(&ClientMessage::Ready)
 	}
 
+	pub fn add_ai(&mut self, strategy: Option<String>) -> std::io::Result<()> {
+		self.send(&ClientMessage::AddAI { strategy })
+	}
+
+	pub fn remove_ai(&mut self, seat: crate::events::Seat) -> std::io::Result<()> {
+		self.send(&ClientMessage::RemoveAI { seat })
+	}
+
 	pub fn action(&mut self, action: crate::events::PlayerAction) -> std::io::Result<()> {
 		self.send(&ClientMessage::Action { action })
 	}

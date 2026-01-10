@@ -4,10 +4,13 @@ use std::net::{TcpListener, TcpStream};
 use std::sync::{mpsc, Arc, Mutex};
 use std::thread;
 
+use crate::bank::Bank;
+use crate::config::{load_players_auto, load_strategies_auto, PlayerConfig};
 use crate::engine::{BettingStructure, GameRunner, RunnerConfig};
 use crate::events::{Card, GameEvent, PlayerAction, Seat};
 use crate::net::protocol::*;
 use crate::net::remote_player::RemotePlayer;
+use crate::players::RulesPlayer;
 use crate::table::{load_tables, TableConfig};
 
 type ConnectionId = u64;
@@ -50,9 +53,22 @@ impl ActiveGame {
 	}
 }
 
+struct AIPlayer {
+	id: String,
+	name: String,
+	strategy: String,
+}
+
+struct GameStartInfo {
+	config: TableConfig,
+	human_players: Vec<(ConnectionId, Seat, String, TcpStream)>,
+	ai_players: Vec<(Seat, String, String, String)>, // seat, id, name, strategy
+}
+
 struct TableRoom {
 	config: TableConfig,
 	players: HashMap<Seat, ConnectionId>,
+	ai_players: HashMap<Seat, AIPlayer>,
 	ready: HashMap<Seat, bool>,
 	status: TableStatus,
 	active_game: Option<ActiveGame>,
@@ -63,6 +79,7 @@ impl TableRoom {
 		Self {
 			config,
 			players: HashMap::new(),
+			ai_players: HashMap::new(),
 			ready: HashMap::new(),
 			status: TableStatus::Waiting,
 			active_game: None,
@@ -70,13 +87,13 @@ impl TableRoom {
 	}
 
 	fn player_count(&self) -> usize {
-		self.players.len()
+		self.players.len() + self.ai_players.len()
 	}
 
 	fn find_empty_seat(&self) -> Option<Seat> {
 		for i in 0..self.config.max_players {
 			let seat = Seat(i);
-			if !self.players.contains_key(&seat) {
+			if !self.players.contains_key(&seat) && !self.ai_players.contains_key(&seat) {
 				return Some(seat);
 			}
 		}
@@ -99,12 +116,26 @@ impl TableRoom {
 		seat
 	}
 
+	fn add_ai(&mut self, seat: Seat, id: String, name: String, strategy: String) {
+		self.ai_players.insert(seat, AIPlayer { id, name, strategy });
+		self.ready.insert(seat, true); // AI is always ready
+	}
+
+	fn remove_ai(&mut self, seat: Seat) -> bool {
+		if self.ai_players.remove(&seat).is_some() {
+			self.ready.remove(&seat);
+			true
+		} else {
+			false
+		}
+	}
+
 	fn set_ready(&mut self, seat: Seat) {
 		self.ready.insert(seat, true);
 	}
 
 	fn all_ready(&self) -> bool {
-		self.players.len() >= self.config.min_players
+		self.player_count() >= self.config.min_players
 			&& self.ready.values().all(|&r| r)
 	}
 
@@ -126,13 +157,26 @@ impl TableRoom {
 	}
 
 	fn player_infos(&self, connections: &HashMap<ConnectionId, Connection>) -> Vec<PlayerInfo> {
-		self.players.iter().map(|(&seat, &conn_id)| {
+		let mut infos: Vec<PlayerInfo> = self.players.iter().map(|(&seat, &conn_id)| {
 			let username = connections.get(&conn_id)
 				.and_then(|c| c.username.clone())
 				.unwrap_or_else(|| "Unknown".to_string());
 			let ready = self.ready.get(&seat).copied().unwrap_or(false);
-			PlayerInfo { seat, username, ready }
-		}).collect()
+			PlayerInfo { seat, username, ready, is_ai: false }
+		}).collect();
+
+		for (&seat, ai) in &self.ai_players {
+			let ready = self.ready.get(&seat).copied().unwrap_or(true);
+			infos.push(PlayerInfo {
+				seat,
+				username: ai.name.clone(),
+				ready,
+				is_ai: true,
+			});
+		}
+
+		infos.sort_by_key(|p| p.seat.0);
+		infos
 	}
 }
 
@@ -140,6 +184,8 @@ pub struct GameServer {
 	connections: Arc<Mutex<HashMap<ConnectionId, Connection>>>,
 	tables: Arc<Mutex<HashMap<String, TableRoom>>>,
 	next_conn_id: Arc<Mutex<ConnectionId>>,
+	ai_roster: Arc<Vec<PlayerConfig>>,
+	bank: Arc<Mutex<Bank>>,
 }
 
 impl GameServer {
@@ -150,10 +196,15 @@ impl GameServer {
 			tables.insert(config.id.clone(), TableRoom::new(config));
 		}
 
+		let ai_roster = load_players_auto().unwrap_or_default();
+		let bank = Bank::load().expect("Failed to load bank - ensure config directory exists");
+
 		Self {
 			connections: Arc::new(Mutex::new(HashMap::new())),
 			tables: Arc::new(Mutex::new(tables)),
 			next_conn_id: Arc::new(Mutex::new(1)),
+			ai_roster: Arc::new(ai_roster),
+			bank: Arc::new(Mutex::new(bank)),
 		}
 	}
 
@@ -173,9 +224,11 @@ impl GameServer {
 
 					let connections = Arc::clone(&self.connections);
 					let tables = Arc::clone(&self.tables);
+					let ai_roster = Arc::clone(&self.ai_roster);
+					let bank = Arc::clone(&self.bank);
 
 					thread::spawn(move || {
-						handle_connection(conn_id, stream, connections, tables);
+						handle_connection(conn_id, stream, connections, tables, ai_roster, bank);
 					});
 				}
 				Err(e) => {
@@ -192,6 +245,8 @@ fn handle_connection(
 	stream: TcpStream,
 	connections: Arc<Mutex<HashMap<ConnectionId, Connection>>>,
 	tables: Arc<Mutex<HashMap<String, TableRoom>>>,
+	ai_roster: Arc<Vec<PlayerConfig>>,
+	bank: Arc<Mutex<Bank>>,
 ) {
 	let stream_clone = stream.try_clone().unwrap();
 	let conn = Connection {
@@ -213,7 +268,7 @@ fn handle_connection(
 			Ok(n) => {
 				pending.extend_from_slice(&buf[..n]);
 				while let Some(msg) = try_decode_message(&mut pending) {
-					process_message(conn_id, msg, &connections, &tables);
+					process_message(conn_id, msg, &connections, &tables, &ai_roster, &bank);
 				}
 			}
 			Err(_) => break,
@@ -260,6 +315,8 @@ fn process_message(
 	msg: ClientMessage,
 	connections: &Arc<Mutex<HashMap<ConnectionId, Connection>>>,
 	tables: &Arc<Mutex<HashMap<String, TableRoom>>>,
+	ai_roster: &Arc<Vec<PlayerConfig>>,
+	bank: &Arc<Mutex<Bank>>,
 ) {
 	match msg {
 		ClientMessage::Login { username } => {
@@ -398,29 +455,133 @@ fn process_message(
 						broadcast_to_table(&tid, &starting_msg, &mut tables_lock, &mut conns);
 
 						// Collect info for game start
-						let game_info: Option<(TableConfig, Vec<(ConnectionId, Seat, String, TcpStream)>)> = {
+						let game_info: Option<GameStartInfo> = {
 							if let Some(table) = tables_lock.get(&tid) {
-								let mut player_data = Vec::new();
+								let mut human_players = Vec::new();
 								for (&seat, &cid) in &table.players {
 									if let Some(conn) = conns.get(&cid) {
 										let username = conn.username.clone().unwrap_or_else(|| "Unknown".to_string());
 										if let Ok(stream_clone) = conn.stream.try_clone() {
-											player_data.push((cid, seat, username, stream_clone));
+											human_players.push((cid, seat, username, stream_clone));
 										}
 									}
 								}
-								Some((table.config.clone(), player_data))
+
+								let ai_players: Vec<(Seat, String, String, String)> = table.ai_players.iter()
+									.map(|(&seat, ai)| (seat, ai.id.clone(), ai.name.clone(), ai.strategy.clone()))
+									.collect();
+
+								Some(GameStartInfo {
+									config: table.config.clone(),
+									human_players,
+									ai_players,
+								})
 							} else {
 								None
 							}
 						};
 
 						// Start game outside of heavy lock usage
-						if let Some((config, player_data)) = game_info {
-							let active_game = start_game(config, player_data);
+						if let Some(info) = game_info {
+							let active_game = start_game(info);
 							if let Some(table) = tables_lock.get_mut(&tid) {
 								table.active_game = Some(active_game);
 							}
+						}
+					}
+				}
+			}
+		}
+
+		ClientMessage::AddAI { strategy: _ } => {
+			let mut conns = connections.lock().unwrap();
+			let mut tables_lock = tables.lock().unwrap();
+			let bank_lock = bank.lock().unwrap();
+
+			let table_id = conns.get(&conn_id).and_then(|c| c.current_table.clone());
+			if let Some(tid) = table_id {
+				if let Some(table) = tables_lock.get_mut(&tid) {
+					if table.status != TableStatus::Waiting {
+						if let Some(conn) = conns.get_mut(&conn_id) {
+							conn.send(&ServerMessage::Error {
+								message: "Cannot add AI while game in progress".to_string(),
+							});
+						}
+						return;
+					}
+
+					if let Some(seat) = table.find_empty_seat() {
+						// Find AI players already at this table
+						let used_ids: Vec<String> = table.ai_players.values()
+							.map(|ai| ai.id.clone())
+							.collect();
+
+						// Find available AI from roster
+						let available_ai = ai_roster.iter()
+							.filter(|p| !used_ids.contains(&p.id))
+							.filter(|p| bank_lock.profile_exists(&p.id))
+							.next();
+
+						if let Some(ai_config) = available_ai {
+							let buy_in = table.config.effective_starting_stack();
+							let bankroll = bank_lock.get_bankroll(&ai_config.id);
+
+							if bankroll < buy_in {
+								if let Some(conn) = conns.get_mut(&conn_id) {
+									conn.send(&ServerMessage::Error {
+										message: format!("{} has insufficient bankroll", ai_config.display_name()),
+									});
+								}
+								return;
+							}
+
+							let name = ai_config.display_name();
+							table.add_ai(seat, ai_config.id.clone(), name.clone(), ai_config.strategy.clone());
+
+							let msg = ServerMessage::AIAdded { seat, name };
+							broadcast_to_table(&tid, &msg, &mut tables_lock, &mut conns);
+						} else {
+							if let Some(conn) = conns.get_mut(&conn_id) {
+								conn.send(&ServerMessage::Error {
+									message: "No available AI players".to_string(),
+								});
+							}
+						}
+					} else {
+						if let Some(conn) = conns.get_mut(&conn_id) {
+							conn.send(&ServerMessage::Error {
+								message: "Table is full".to_string(),
+							});
+						}
+					}
+				}
+			}
+		}
+
+		ClientMessage::RemoveAI { seat } => {
+			let mut conns = connections.lock().unwrap();
+			let mut tables_lock = tables.lock().unwrap();
+
+			let table_id = conns.get(&conn_id).and_then(|c| c.current_table.clone());
+			if let Some(tid) = table_id {
+				if let Some(table) = tables_lock.get_mut(&tid) {
+					if table.status != TableStatus::Waiting {
+						if let Some(conn) = conns.get_mut(&conn_id) {
+							conn.send(&ServerMessage::Error {
+								message: "Cannot remove AI while game in progress".to_string(),
+							});
+						}
+						return;
+					}
+
+					if table.remove_ai(seat) {
+						let msg = ServerMessage::AIRemoved { seat };
+						broadcast_to_table(&tid, &msg, &mut tables_lock, &mut conns);
+					} else {
+						if let Some(conn) = conns.get_mut(&conn_id) {
+							conn.send(&ServerMessage::Error {
+								message: "No AI at that seat".to_string(),
+							});
 						}
 					}
 				}
@@ -483,10 +644,7 @@ fn broadcast_to_table_except(
 	}
 }
 
-fn start_game(
-	config: TableConfig,
-	player_data: Vec<(ConnectionId, Seat, String, TcpStream)>,
-) -> ActiveGame {
+fn start_game(info: GameStartInfo) -> ActiveGame {
 	let mut active_game = ActiveGame::new();
 
 	let runtime = tokio::runtime::Builder::new_multi_thread()
@@ -495,24 +653,60 @@ fn start_game(
 		.unwrap();
 	let runtime_handle = runtime.handle().clone();
 
-	let runner_config = build_runner_config(&config);
-	let (mut runner, game_handle) = GameRunner::new(runner_config, runtime_handle);
+	let runner_config = build_runner_config(&info.config);
+	let (mut runner, game_handle) = GameRunner::new(runner_config, runtime_handle.clone());
 
-	// Collect streams for event forwarding - use sequential game seats (0, 1, 2, ...)
+	// Load strategies for AI players
+	let strategies = load_strategies_auto().unwrap_or_default();
+	let big_blind = info.config.big_blind.unwrap_or(2.0);
+
+	// Capture delays from config
+	let action_delay_ms = info.config.action_delay_ms;
+	let street_delay_ms = info.config.street_delay_ms;
+	let hand_end_delay_ms = info.config.hand_end_delay_ms;
+
+	// Combine all players and sort by seat for consistent ordering
+	enum PlayerSlot {
+		Human { conn_id: ConnectionId, name: String, stream: TcpStream },
+		AI { name: String, strategy: String },
+	}
+
+	let mut all_players: Vec<(Seat, PlayerSlot)> = Vec::new();
+
+	for (conn_id, seat, username, stream) in info.human_players {
+		all_players.push((seat, PlayerSlot::Human { conn_id, name: username, stream }));
+	}
+
+	for (seat, _id, name, strategy) in info.ai_players {
+		all_players.push((seat, PlayerSlot::AI { name, strategy }));
+	}
+
+	all_players.sort_by_key(|(seat, _)| seat.0);
+
+	// Collect streams for event forwarding (human players only)
 	let mut player_streams: Vec<(Seat, Arc<Mutex<TcpStream>>)> = Vec::new();
 
-	for (idx, (conn_id, _lobby_seat, username, stream)) in player_data.into_iter().enumerate() {
+	for (idx, (_lobby_seat, slot)) in all_players.into_iter().enumerate() {
 		let game_seat = Seat(idx);
 
-		if let Ok(stream_for_events) = stream.try_clone() {
-			player_streams.push((game_seat, Arc::new(Mutex::new(stream_for_events))));
+		match slot {
+			PlayerSlot::Human { conn_id, name, stream } => {
+				if let Ok(stream_for_events) = stream.try_clone() {
+					player_streams.push((game_seat, Arc::new(Mutex::new(stream_for_events))));
+				}
+
+				let (action_tx, action_rx) = mpsc::channel();
+				active_game.register_player(conn_id, game_seat, action_tx);
+
+				let player = RemotePlayer::new(game_seat, name, action_rx);
+				runner.add_player(Arc::new(player));
+			}
+			PlayerSlot::AI { name, strategy } => {
+				let strat = strategies.get_or_default(&strategy);
+				let player = RulesPlayer::new(game_seat, &name, strat, big_blind);
+				runner.add_player(Arc::new(player));
+			}
 		}
-
-		let (action_tx, action_rx) = mpsc::channel();
-		active_game.register_player(conn_id, game_seat, action_tx);
-
-		let player = RemotePlayer::new(game_seat, username, action_rx);
-		runner.add_player(Arc::new(player));
 	}
 
 	thread::spawn(move || {
@@ -544,12 +738,12 @@ fn start_game(
 				}
 			}
 
-			// Add delay after certain events
+			// Use delays from table config
 			let delay_ms = match &event {
-				GameEvent::ActionTaken { .. } => 300,
-				GameEvent::StreetChanged { .. } => 800,
-				GameEvent::HandEnded { .. } => 3000,
-				GameEvent::PotAwarded { .. } => 1000,
+				GameEvent::ActionTaken { .. } => action_delay_ms,
+				GameEvent::StreetChanged { .. } => street_delay_ms,
+				GameEvent::HandEnded { .. } => hand_end_delay_ms,
+				GameEvent::PotAwarded { .. } => 1500,
 				_ => 0,
 			};
 
