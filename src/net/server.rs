@@ -7,7 +7,7 @@ use std::thread;
 use tokio::sync::oneshot;
 
 use crate::engine::{BettingStructure, GameRunner, RunnerConfig};
-use crate::events::{PlayerAction, Seat};
+use crate::events::{Card, GameEvent, PlayerAction, Seat};
 use crate::net::network_player::{submit_action, NetworkPlayer};
 use crate::net::protocol::*;
 use crate::players::PlayerResponse;
@@ -504,7 +504,15 @@ fn start_game(
 	let runner_config = build_runner_config(&config);
 	let (mut runner, game_handle) = GameRunner::new(runner_config, runtime_handle);
 
+	// Collect streams for event forwarding
+	let mut player_streams: Vec<(Seat, Arc<Mutex<TcpStream>>)> = Vec::new();
+
 	for (conn_id, seat, username, stream) in player_data {
+		// Clone stream for event forwarding
+		if let Ok(stream_for_events) = stream.try_clone() {
+			player_streams.push((seat, Arc::new(Mutex::new(stream_for_events))));
+		}
+
 		let player = NetworkPlayer::new(seat, username, stream);
 		let pending = player.pending_action_sender();
 		active_game.register_player(conn_id, seat, pending);
@@ -517,14 +525,53 @@ fn start_game(
 		println!("Game ended");
 	});
 
-	// Drain event channel (events are sent directly by NetworkPlayer::notify)
+	// Forward events to all players with filtering and pacing
 	thread::spawn(move || {
-		while let Ok(_event) = game_handle.event_rx.recv() {
-			// Events forwarded by NetworkPlayer::notify
+		while let Ok(event) = game_handle.event_rx.recv() {
+			// Add delay after certain events
+			let delay_ms = match &event {
+				GameEvent::ActionTaken { .. } => 300,
+				GameEvent::StreetChanged { .. } => 800,
+				GameEvent::HandEnded { .. } => 3000,
+				GameEvent::PotAwarded { .. } => 1000,
+				_ => 0,
+			};
+
+			for (seat, stream) in &player_streams {
+				let filtered = filter_event_for_seat(&event, *seat);
+				let msg = ServerMessage::GameEvent(filtered);
+				let data = encode_message(&msg);
+				if let Ok(mut s) = stream.lock() {
+					let _ = s.write_all(&data);
+				}
+			}
+
+			if delay_ms > 0 {
+				thread::sleep(std::time::Duration::from_millis(delay_ms));
+			}
 		}
 	});
 
 	active_game
+}
+
+fn filter_event_for_seat(event: &GameEvent, seat: Seat) -> GameEvent {
+	match event {
+		GameEvent::HoleCardsDealt { seat: dealt_seat, cards: _ } => {
+			if *dealt_seat == seat {
+				event.clone()
+			} else {
+				GameEvent::HoleCardsDealt {
+					seat: *dealt_seat,
+					cards: [
+						Card { rank: '?', suit: '?' },
+						Card { rank: '?', suit: '?' },
+					],
+				}
+			}
+		}
+		_ => event.clone(),
+	}
 }
 
 fn build_runner_config(table: &TableConfig) -> RunnerConfig {
