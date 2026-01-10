@@ -158,7 +158,7 @@ struct WinnerInfo {
 	awarded_at: Instant,
 }
 
-fn build_info_lines(table: &TableConfig, seed: Option<u64>) -> Vec<String> {
+fn build_info_lines(table: &TableConfig, num_players: usize, seed: Option<u64>) -> Vec<String> {
 	let mut lines = vec![
 		format!("Format: {}", table.format),
 		format!("Betting: {}", table.betting),
@@ -177,12 +177,12 @@ fn build_info_lines(table: &TableConfig, seed: Option<u64>) -> Vec<String> {
 				lines.push(format!("Max Buy-in: ${:.0}", max));
 			}
 			lines.push(String::new());
-			lines.push(format!("Players: {}", table.player_range()));
+			lines.push(format!("Players: {}", num_players));
 			if table.rake_percent > 0.0 {
 				let rake_str = if let Some(cap) = table.rake_cap {
-					format!("Rake: {:.1}% (${:.0} cap)", table.rake_percent, cap)
+					format!("Rake: {:.1}% (${:.0} cap)", table.rake_percent * 100.0, cap)
 				} else {
-					format!("Rake: {:.1}%", table.rake_percent)
+					format!("Rake: {:.1}%", table.rake_percent * 100.0)
 				};
 				lines.push(rake_str);
 			}
@@ -195,11 +195,12 @@ fn build_info_lines(table: &TableConfig, seed: Option<u64>) -> Vec<String> {
 				lines.push(format!("Starting Stack: ${:.0}", stack));
 			}
 			lines.push(String::new());
-			lines.push(format!("Players: {}", table.player_range()));
-			if let Some(ref payouts) = table.payouts {
+			lines.push(format!("Players: {}", num_players));
+			if let (Some(payouts), Some(buyin)) = (&table.payouts, table.buy_in) {
+				let prize_pool = buyin * num_players as f32;
 				let payout_strs: Vec<String> = payouts
 					.iter()
-					.map(|p| format!("{:.0}%", p * 100.0))
+					.map(|p| format!("${:.0}", (prize_pool * p).round()))
 					.collect();
 				lines.push(format!("Payouts: {}", payout_strs.join(", ")));
 			}
@@ -226,6 +227,7 @@ struct App {
 	table_config: TableConfig,
 	info_lines: Vec<String>,
 	theme: Theme,
+	theme_name: String,
 	quit_signal: Arc<AtomicBool>,
 }
 
@@ -233,13 +235,15 @@ impl App {
 	fn new(
 		human_seat: Seat,
 		table_config: TableConfig,
+		num_players: usize,
 		effective_seed: Option<u64>,
 		theme: Theme,
+		theme_name: String,
 		quit_signal: Arc<AtomicBool>,
 	) -> Self {
 		let table_info = format!("{} {}", table_config.betting, table_config.format);
 		let table_view = TableView::new().with_table_info(table_config.name.clone(), table_info);
-		let info_lines = build_info_lines(&table_config, effective_seed);
+		let info_lines = build_info_lines(&table_config, num_players, effective_seed);
 		Self {
 			table_view,
 			view_updater: ViewUpdater::new(Some(human_seat)),
@@ -252,6 +256,7 @@ impl App {
 			table_config,
 			info_lines,
 			theme,
+			theme_name,
 			quit_signal,
 		}
 	}
@@ -334,9 +339,37 @@ impl App {
 				false
 			}
 
+			InputEffect::CycleTheme => {
+				self.cycle_theme();
+				false
+			}
+
 			InputEffect::Quit => {
 				self.quit_signal.store(true, Ordering::SeqCst);
 				true
+			}
+		}
+	}
+
+	fn cycle_theme(&mut self) {
+		let available = Theme::list_available();
+		if available.is_empty() {
+			return;
+		}
+
+		let current_idx = available
+			.iter()
+			.position(|name| name == &self.theme_name)
+			.unwrap_or(0);
+
+		let next_idx = (current_idx + 1) % available.len();
+		let next_name = &available[next_idx];
+
+		if let Ok(new_theme) = Theme::load_named(next_name) {
+			self.theme = new_theme;
+			self.theme_name = next_name.clone();
+			if !self.input_state.is_awaiting_input() {
+				self.status_message = Some(format!("Theme: {}", next_name));
 			}
 		}
 	}
@@ -479,6 +512,10 @@ fn cmd_bankroll(name: &str, action: BankrollAction) -> io::Result<()> {
 }
 
 fn cmd_play(player: Option<String>, theme: Option<String>, seed: Option<u64>) -> io::Result<()> {
+	let theme_name = theme
+		.clone()
+		.or_else(|| std::env::var("POKER_THEME").ok())
+		.unwrap_or_else(|| "dark".to_string());
 	let theme = Theme::load(theme.as_deref());
 	let bank = Bank::load().map_err(|e| io::Error::new(io::ErrorKind::Other, e))?;
 
@@ -492,7 +529,7 @@ fn cmd_play(player: Option<String>, theme: Option<String>, seed: Option<u64>) ->
 	let backend = CrosstermBackend::new(stdout);
 	let mut terminal = Terminal::new(backend)?;
 
-	let result = run_app(&mut terminal, theme, host_id, seed);
+	let result = run_app(&mut terminal, theme, theme_name, host_id, seed);
 
 	disable_raw_mode()?;
 	execute!(terminal.backend_mut(), LeaveAlternateScreen)?;
@@ -507,6 +544,7 @@ fn cmd_play(player: Option<String>, theme: Option<String>, seed: Option<u64>) ->
 fn run_app(
 	terminal: &mut Terminal<CrosstermBackend<io::Stdout>>,
 	theme: Theme,
+	theme_name: String,
 	host_id: String,
 	cli_seed: Option<u64>,
 ) -> io::Result<()> {
@@ -520,7 +558,7 @@ fn run_app(
 		MenuResult::Quit => return Ok(()),
 		MenuResult::StartGame { table, players } => {
 			let mut bank = Bank::load().map_err(|e| io::Error::new(io::ErrorKind::Other, e))?;
-			let standings = run_game(terminal, table.clone(), players, &mut bank, &host_id, theme, cli_seed)?;
+			let standings = run_game(terminal, table.clone(), players, &mut bank, &host_id, theme, theme_name, cli_seed)?;
 
 			match table.format {
 				GameFormat::Cash => {
@@ -556,6 +594,7 @@ fn run_game(
 	bank: &mut Bank,
 	_host_id: &str,
 	theme: Theme,
+	theme_name: String,
 	cli_seed: Option<u64>,
 ) -> io::Result<Vec<Standing>> {
 	let (small_blind, big_blind) = table.current_blinds();
@@ -653,8 +692,10 @@ fn run_game(
 	let mut app = App::new(
 		human_seat,
 		table.clone(),
+		lobby_players.len(),
 		seed,
 		theme,
+		theme_name,
 		Arc::clone(&game_handle.quit_signal),
 	);
 	let delays = DelayConfig::from_table(&table);
@@ -690,8 +731,21 @@ fn run_game(
 			continue;
 		}
 
+		if event::poll(Duration::from_millis(0))? {
+			if let Event::Key(key) = event::read()? {
+				if key.kind == KeyEventKind::Press {
+					if app.handle_input(key.code) {
+						log::event("user quit while watching");
+						break;
+					}
+				}
+			}
+		}
+
 		match game_handle.event_rx.recv_timeout(Duration::from_millis(50)) {
 			Ok(event) => {
+				app.status_message = None;
+
 				let is_human_turn = matches!(
 					&event,
 					GameEvent::ActionRequest { seat, .. } if seat.0 == app.human_seat.0
@@ -719,18 +773,7 @@ fn run_game(
 					}
 				}
 			}
-			Err(mpsc::RecvTimeoutError::Timeout) => {
-				if event::poll(Duration::from_millis(0))? {
-					if let Event::Key(key) = event::read()? {
-						if key.kind == KeyEventKind::Press {
-							if app.handle_input(key.code) {
-								log::event("user confirmed quit while watching");
-								break;
-							}
-						}
-					}
-				}
-			}
+			Err(mpsc::RecvTimeoutError::Timeout) => {}
 			Err(mpsc::RecvTimeoutError::Disconnected) => {
 				log::event("game engine disconnected");
 				break;
@@ -826,7 +869,7 @@ fn draw_ui(frame: &mut Frame, app: &App) {
 			Style::default().fg(app.theme.status_game_over_border()),
 		),
 		InputState::Watching => (
-			"[q] quit".to_string(),
+			app.status_message.clone().unwrap_or_else(|| "[t] theme  [q] quit".to_string()),
 			" Status ",
 			Style::default().fg(app.theme.status_watching()),
 			Style::default().fg(app.theme.status_watching_border()),

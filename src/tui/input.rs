@@ -21,6 +21,7 @@ pub enum InputEffect {
 	SetPrompt(String),
 	ClearPrompt,
 	Respond(PlayerResponse),
+	CycleTheme,
 	Quit,
 }
 
@@ -67,6 +68,7 @@ impl InputState {
 fn handle_watching(key: KeyCode) -> (InputState, InputEffect) {
 	match key {
 		KeyCode::Char('q') | KeyCode::Esc => (InputState::Watching, InputEffect::Quit),
+		KeyCode::Char('t') => (InputState::Watching, InputEffect::CycleTheme),
 		_ => (InputState::Watching, InputEffect::None),
 	}
 }
@@ -74,6 +76,7 @@ fn handle_watching(key: KeyCode) -> (InputState, InputEffect) {
 fn handle_game_over(key: KeyCode) -> (InputState, InputEffect) {
 	match key {
 		KeyCode::Char('q') | KeyCode::Esc => (InputState::GameOver, InputEffect::Quit),
+		KeyCode::Char('t') => (InputState::GameOver, InputEffect::CycleTheme),
 		_ => (InputState::GameOver, InputEffect::None),
 	}
 }
@@ -173,6 +176,10 @@ fn handle_awaiting_action(valid: ValidActions, key: KeyCode) -> (InputState, Inp
 
 		KeyCode::Char('q') | KeyCode::Esc => {
 			(InputState::AwaitingAction { valid }, InputEffect::Quit)
+		}
+
+		KeyCode::Char('t') => {
+			(InputState::AwaitingAction { valid }, InputEffect::CycleTheme)
 		}
 
 		_ => (InputState::AwaitingAction { valid }, InputEffect::None),
