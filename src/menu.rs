@@ -53,10 +53,10 @@ impl SortMode {
 		match self {
 			SortMode::Manual => "Manual",
 			SortMode::Alpha => "A-Z",
-			SortMode::Format => "Format",
-			SortMode::Betting => "Betting",
-			SortMode::StakesAsc => "Stakes ↑",
-			SortMode::StakesDesc => "Stakes ↓",
+			SortMode::Format => "Format (cash or tournament)",
+			SortMode::Betting => "Betting structure",
+			SortMode::StakesAsc => "Buy-in (ascending)",
+			SortMode::StakesDesc => "Buy-in (descending)"
 		}
 	}
 }
@@ -397,7 +397,7 @@ impl Menu {
 
 		let host_bankroll = self.bank.get_bankroll(&self.host_id);
 		let header = Paragraph::new(format!(
-			"  POKER TUI                                    Bankroll: ${:.0}",
+			"  Transparent Poker                            Bankroll: ${:.0}",
 			host_bankroll
 		))
 		.style(Style::default().fg(self.theme.menu_title()).add_modifier(Modifier::BOLD))
