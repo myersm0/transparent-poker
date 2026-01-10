@@ -10,9 +10,8 @@ use ratatui::{
 	Frame, Terminal,
 };
 
-use crate::bank::Bank;
-use crate::config::PlayerConfig;
-use crate::table::{BettingStructure, GameFormat, TableConfig};
+use crate::lobby::{LobbyBackend, LobbyCommand, LobbyEvent, LobbyPlayer, TableSummary};
+use crate::table::TableConfig;
 use crate::theme::Theme;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
@@ -20,8 +19,8 @@ pub enum SortMode {
 	#[default]
 	Manual,
 	Alpha,
-	Format,
 	Betting,
+	Format,
 	StakesAsc,
 	StakesDesc,
 }
@@ -53,20 +52,12 @@ impl SortMode {
 		match self {
 			SortMode::Manual => "Manual",
 			SortMode::Alpha => "A-Z",
-			SortMode::Format => "Format (cash or tournament)",
-			SortMode::Betting => "Betting structure",
-			SortMode::StakesAsc => "Buy-in (ascending)",
-			SortMode::StakesDesc => "Buy-in (descending)"
+			SortMode::Format => "Format (cash game or tournament)",
+			SortMode::Betting => "Betting structure (no limit, pot limit, fixed)",
+			SortMode::StakesAsc => "Minimum buy-in (ascending)",
+			SortMode::StakesDesc => "Minimum buy-in (descending)",
 		}
 	}
-}
-
-#[derive(Debug, Clone)]
-pub struct LobbyPlayer {
-	pub id: String,
-	pub is_host: bool,
-	pub is_human: bool,
-	pub strategy: Option<String>,
 }
 
 pub enum MenuResult {
@@ -82,54 +73,110 @@ enum MenuState {
 	Lobby,
 }
 
-pub struct Menu {
+pub struct Menu<B: LobbyBackend> {
+	backend: B,
 	state: MenuState,
-	tables: Vec<TableConfig>,
+	host_id: String,
+
+	tables: Vec<TableSummary>,
 	sorted_indices: Vec<usize>,
 	sort_mode: SortMode,
 	table_list_state: ListState,
-	bank: Bank,
-	host_id: String,
-	roster: Vec<PlayerConfig>,
 
-	selected_table: Option<TableConfig>,
-	lobby_players: Vec<LobbyPlayer>,
+	current_table_id: Option<String>,
+	current_table_name: String,
+	min_players: usize,
+	max_players: usize,
+	players: Vec<LobbyPlayer>,
 	lobby_cursor: usize,
+
 	theme: Theme,
 	show_info: bool,
+	error_message: Option<String>,
 }
 
-impl Menu {
-	pub fn new(tables: Vec<TableConfig>, bank: Bank, host_id: String, roster: Vec<PlayerConfig>, theme: Theme) -> Self {
+impl<B: LobbyBackend> Menu<B> {
+	pub fn new(backend: B, host_id: String, theme: Theme) -> Self {
 		let mut table_list_state = ListState::default();
 		table_list_state.select(Some(0));
 
-		let sorted_indices: Vec<usize> = (0..tables.len()).collect();
-
-		let mut menu = Self {
+		Self {
+			backend,
 			state: MenuState::TableSelect,
-			tables,
-			sorted_indices,
+			host_id,
+			tables: Vec::new(),
+			sorted_indices: Vec::new(),
 			sort_mode: SortMode::Manual,
 			table_list_state,
-			bank,
-			host_id: host_id.clone(),
-			roster,
-			selected_table: None,
-			lobby_players: Vec::new(),
+			current_table_id: None,
+			current_table_name: String::new(),
+			min_players: 2,
+			max_players: 6,
+			players: Vec::new(),
 			lobby_cursor: 0,
 			theme,
 			show_info: false,
-		};
+			error_message: None,
+		}
+	}
 
-		menu.lobby_players.push(LobbyPlayer {
-			id: host_id,
-			is_host: true,
-			is_human: true,
-			strategy: None,
-		});
+	pub fn into_backend(self) -> B {
+		self.backend
+	}
 
-		menu
+	fn process_events(&mut self) -> Option<MenuResult> {
+		while let Some(event) = self.backend.poll() {
+			match event {
+				LobbyEvent::TablesListed(tables) => {
+					self.tables = tables;
+					self.sorted_indices = (0..self.tables.len()).collect();
+					self.apply_sort();
+				}
+				LobbyEvent::TableJoined { table_id, table_name, players, min_players, max_players, .. } => {
+					self.current_table_id = Some(table_id);
+					self.current_table_name = table_name;
+					self.players = players;
+					self.min_players = min_players;
+					self.max_players = max_players;
+					self.lobby_cursor = self.players.len();
+					self.state = MenuState::Lobby;
+				}
+				LobbyEvent::PlayerJoined { seat, username, is_ai } => {
+					self.players.push(LobbyPlayer {
+						seat: Some(seat),
+						id: username.to_lowercase(),
+						name: username,
+						is_host: false,
+						is_human: !is_ai,
+						is_ready: is_ai,
+						strategy: None,
+						bankroll: None,
+					});
+				}
+				LobbyEvent::PlayerLeft { seat } => {
+					self.players.retain(|p| p.seat != Some(seat));
+				}
+				LobbyEvent::PlayerReady { seat } => {
+					if let Some(p) = self.players.iter_mut().find(|p| p.seat == Some(seat)) {
+						p.is_ready = true;
+					}
+				}
+				LobbyEvent::GameStarting => {}
+				LobbyEvent::GameReady { table, players } => {
+					return Some(MenuResult::StartGame { table, players });
+				}
+				LobbyEvent::Error(msg) => {
+					self.error_message = Some(msg);
+				}
+				LobbyEvent::LeftTable => {
+					self.current_table_id = None;
+					self.current_table_name.clear();
+					self.players.clear();
+					self.state = MenuState::TableSelect;
+				}
+			}
+		}
+		None
 	}
 
 	fn apply_sort(&mut self) {
@@ -144,40 +191,29 @@ impl Menu {
 			}
 			SortMode::Format => {
 				self.sorted_indices.sort_by(|&a, &b| {
-					let format_ord = |f: GameFormat| match f {
-						GameFormat::Cash => 0,
-						GameFormat::SitNGo => 1,
-					};
-					format_ord(self.tables[a].format).cmp(&format_ord(self.tables[b].format))
+					self.tables[a].format.cmp(&self.tables[b].format)
 				});
 			}
 			SortMode::Betting => {
 				self.sorted_indices.sort_by(|&a, &b| {
-					let betting_ord = |b: BettingStructure| match b {
-						BettingStructure::NoLimit => 0,
-						BettingStructure::PotLimit => 1,
-						BettingStructure::FixedLimit => 2,
-					};
-					betting_ord(self.tables[a].betting).cmp(&betting_ord(self.tables[b].betting))
+					self.tables[a].betting.cmp(&self.tables[b].betting)
 				});
 			}
 			SortMode::StakesAsc => {
 				self.sorted_indices.sort_by(|&a, &b| {
-					let bb_a = self.tables[a].current_blinds().1;
-					let bb_b = self.tables[b].current_blinds().1;
-					bb_a.partial_cmp(&bb_b).unwrap_or(std::cmp::Ordering::Equal)
+					self.tables[a].blinds.cmp(&self.tables[b].blinds)
 				});
 			}
 			SortMode::StakesDesc => {
 				self.sorted_indices.sort_by(|&a, &b| {
-					let bb_a = self.tables[a].current_blinds().1;
-					let bb_b = self.tables[b].current_blinds().1;
-					bb_b.partial_cmp(&bb_a).unwrap_or(std::cmp::Ordering::Equal)
+					self.tables[b].blinds.cmp(&self.tables[a].blinds)
 				});
 			}
 		}
 
-		self.table_list_state.select(Some(0));
+		if !self.sorted_indices.is_empty() {
+			self.table_list_state.select(Some(0));
+		}
 	}
 
 	fn cycle_sort_next(&mut self) {
@@ -196,98 +232,106 @@ impl Menu {
 		})
 	}
 
-	pub fn run<B: Backend>(&mut self, terminal: &mut Terminal<B>) -> io::Result<MenuResult> {
+	fn can_start(&self) -> bool {
+		let count = self.players.len();
+		count >= self.min_players && count <= self.max_players
+	}
+
+	fn all_ready(&self) -> bool {
+		self.players.iter().all(|p| p.is_ready)
+	}
+
+	pub fn run<Back: Backend>(&mut self, terminal: &mut Terminal<Back>) -> io::Result<MenuResult> {
+		self.backend.send(LobbyCommand::ListTables);
+
 		loop {
+			if let Some(result) = self.process_events() {
+				return Ok(result);
+			}
+
 			terminal.draw(|f| self.draw(f))?;
 
-			if event::poll(std::time::Duration::from_millis(100))? {
+			if event::poll(std::time::Duration::from_millis(50))? {
 				if let Event::Key(key) = event::read()? {
-					if key.kind != KeyEventKind::Press {
-						continue;
-					}
+					if key.kind == KeyEventKind::Press {
+						self.error_message = None;
 
-					if self.show_info {
-						self.show_info = false;
-						continue;
-					}
-
-					match &self.state {
-						MenuState::TableSelect => {
-							match key.code {
-								KeyCode::Char('q') | KeyCode::Esc => {
-									return Ok(MenuResult::Quit);
-								}
-								KeyCode::Up => {
-									self.move_table_selection(-1);
-								}
-								KeyCode::Down => {
-									self.move_table_selection(1);
-								}
-								KeyCode::Left => {
-									self.cycle_sort_prev();
-								}
-								KeyCode::Right => {
-									self.cycle_sort_next();
-								}
-								KeyCode::Char('i') => {
-									self.show_info = true;
-								}
-								KeyCode::Enter => {
-									if let Some(idx) = self.selected_table_index() {
-										self.selected_table = Some(self.tables[idx].clone());
-										self.auto_fill_lobby();
-										self.state = MenuState::Lobby;
-										self.lobby_cursor = self.lobby_players.len();
-									}
-								}
-								_ => {}
-							}
+						if self.show_info {
+							self.show_info = false;
+							continue;
 						}
-						MenuState::Lobby => {
-							match key.code {
-								KeyCode::Esc => {
-									self.state = MenuState::TableSelect;
-									self.selected_table = None;
-								}
-								KeyCode::Char('q') => {
-									return Ok(MenuResult::Quit);
-								}
-								KeyCode::Up => {
-									if self.lobby_cursor > 0 {
-										self.lobby_cursor -= 1;
+
+						match &self.state {
+							MenuState::TableSelect => {
+								match key.code {
+									KeyCode::Char('q') => {
+										return Ok(MenuResult::Quit);
 									}
-								}
-								KeyCode::Down => {
-									let max = self.lobby_players.len();
-									if self.lobby_cursor < max {
-										self.lobby_cursor += 1;
+									KeyCode::Up => {
+										self.move_table_selection(-1);
 									}
-								}
-								KeyCode::Enter => {
-									if self.lobby_cursor == self.lobby_players.len() {
-										self.add_next_ai();
-									} else if self.can_start() {
-										return Ok(MenuResult::StartGame {
-											table: self.selected_table.clone().expect("table selected in lobby state"),
-											players: self.lobby_players.clone(),
-										});
+									KeyCode::Down => {
+										self.move_table_selection(1);
 									}
-								}
-								KeyCode::Char('a') => {
-									self.add_next_ai();
-								}
-								KeyCode::Char('d') | KeyCode::Delete | KeyCode::Backspace => {
-									self.remove_player_at_cursor();
-								}
-								KeyCode::Char('s') => {
-									if self.can_start() {
-										return Ok(MenuResult::StartGame {
-											table: self.selected_table.clone().expect("table selected in lobby state"),
-											players: self.lobby_players.clone(),
-										});
+									KeyCode::Left => {
+										self.cycle_sort_prev();
 									}
+									KeyCode::Right => {
+										self.cycle_sort_next();
+									}
+									KeyCode::Char('i') => {
+										self.show_info = true;
+									}
+									KeyCode::Enter => {
+										if let Some(idx) = self.selected_table_index() {
+											let table_id = self.tables[idx].id.clone();
+											self.backend.send(LobbyCommand::JoinTable(table_id));
+										}
+									}
+									_ => {}
 								}
-								_ => {}
+							}
+							MenuState::Lobby => {
+								match key.code {
+									KeyCode::Esc => {
+										self.backend.send(LobbyCommand::LeaveTable);
+									}
+									KeyCode::Char('q') => {
+										return Ok(MenuResult::Quit);
+									}
+									KeyCode::Up => {
+										if self.lobby_cursor > 0 {
+											self.lobby_cursor -= 1;
+										}
+									}
+									KeyCode::Down => {
+										let max = self.players.len();
+										if self.lobby_cursor < max {
+											self.lobby_cursor += 1;
+										}
+									}
+									KeyCode::Char(' ') | KeyCode::Char('a') => {
+										self.backend.send(LobbyCommand::AddAI);
+									}
+									KeyCode::Char('d') | KeyCode::Delete | KeyCode::Backspace => {
+										if let Some(player) = self.players.get(self.lobby_cursor) {
+											if !player.is_host && !player.is_human {
+												if let Some(seat) = player.seat {
+													self.backend.send(LobbyCommand::RemoveAI(seat));
+												}
+											}
+										}
+									}
+									KeyCode::Enter => {
+										if self.can_start() {
+											self.backend.send(LobbyCommand::Ready);
+											if self.all_ready() {
+												self.backend.send(LobbyCommand::StartGame);
+											}
+										}
+									}
+									_ => {}
+								}
 							}
 						}
 					}
@@ -304,69 +348,6 @@ impl Menu {
 		let current = self.table_list_state.selected().unwrap_or(0) as i32;
 		let new = (current + delta).rem_euclid(len as i32) as usize;
 		self.table_list_state.select(Some(new));
-	}
-
-	fn add_next_ai(&mut self) {
-		if let Some(table) = &self.selected_table {
-			if self.lobby_players.len() >= table.max_players {
-				return;
-			}
-		}
-
-		let used_ids: Vec<String> = self.lobby_players.iter().map(|p| p.id.clone()).collect();
-		if let Some(player_config) = self.roster.iter().find(|p| !used_ids.contains(&p.display_name())) {
-			self.lobby_players.push(LobbyPlayer {
-				id: player_config.display_name(),
-				is_host: false,
-				is_human: false,
-				strategy: Some(player_config.strategy.clone()),
-			});
-			self.lobby_cursor = self.lobby_players.len();
-		}
-	}
-
-	fn auto_fill_lobby(&mut self) {
-		let max_players = self.selected_table.as_ref().map(|t| t.max_players).unwrap_or(6);
-		let used_ids: Vec<String> = self.lobby_players.iter().map(|p| p.id.clone()).collect();
-
-		for player_config in &self.roster {
-			if self.lobby_players.len() >= max_players {
-				break;
-			}
-			if used_ids.contains(&player_config.display_name()) {
-				continue;
-			}
-			if rand::random::<f32>() < player_config.join_probability {
-				self.lobby_players.push(LobbyPlayer {
-					id: player_config.display_name(),
-					is_host: false,
-					is_human: false,
-					strategy: Some(player_config.strategy.clone()),
-				});
-			}
-		}
-		self.lobby_cursor = self.lobby_players.len();
-	}
-
-	fn remove_player_at_cursor(&mut self) {
-		if self.lobby_cursor < self.lobby_players.len() {
-			let player = &self.lobby_players[self.lobby_cursor];
-			if !player.is_host {
-				self.lobby_players.remove(self.lobby_cursor);
-				if self.lobby_cursor > 0 && self.lobby_cursor >= self.lobby_players.len() {
-					self.lobby_cursor = self.lobby_players.len();
-				}
-			}
-		}
-	}
-
-	fn can_start(&self) -> bool {
-		if let Some(table) = &self.selected_table {
-			let count = self.lobby_players.len();
-			count >= table.min_players && count <= table.max_players
-		} else {
-			false
-		}
 	}
 
 	fn draw(&self, frame: &mut Frame) {
@@ -395,13 +376,18 @@ impl Menu {
 			])
 			.split(area);
 
-		let host_bankroll = self.bank.get_bankroll(&self.host_id);
-		let header = Paragraph::new(format!(
-			"  Transparent Poker                            Bankroll: ${:.0}",
-			host_bankroll
-		))
-		.style(Style::default().fg(self.theme.menu_title()).add_modifier(Modifier::BOLD))
-		.block(Block::default().borders(Borders::ALL).border_style(Style::default().fg(self.theme.menu_border())));
+		let host_bankroll = self.backend.get_bankroll(&self.host_id);
+		let header_text = if host_bankroll > 0.0 {
+			format!(
+				"  Transparent Poker                            Bankroll: ${:.0}",
+				host_bankroll
+			)
+		} else {
+			"  Transparent Poker".to_string()
+		};
+		let header = Paragraph::new(header_text)
+			.style(Style::default().fg(self.theme.menu_title()).add_modifier(Modifier::BOLD))
+			.block(Block::default().borders(Borders::ALL).border_style(Style::default().fg(self.theme.menu_border())));
 		frame.render_widget(header, chunks[0]);
 
 		let items: Vec<ListItem> = self
@@ -409,24 +395,27 @@ impl Menu {
 			.iter()
 			.map(|&idx| {
 				let t = &self.tables[idx];
-				let format_label = match t.format {
-					GameFormat::Cash => "Cash",
-					GameFormat::SitNGo => "SNG",
-				};
 				let line = Line::from(vec![
 					Span::styled(
-						format!("{:<6}", format_label),
-						Style::default().fg(self.theme.menu_unselected()),
-					),
-					Span::styled(
-						format!("{:<22}", t.name),
+						format!("{:<24}", t.name),
 						Style::default().fg(self.theme.menu_text()),
 					),
 					Span::styled(
-						format!("{:<18}", t.summary()),
+						format!("{:<12}", t.format),
+						Style::default().fg(self.theme.menu_unselected()),
+					),
+					Span::styled(
+						format!("{:<14}", t.betting),
 						Style::default().fg(self.theme.menu_highlight()),
 					),
-					Span::styled(t.player_range(), Style::default().fg(self.theme.menu_unselected())),
+					Span::styled(
+						format!("{:<10}", t.blinds),
+						Style::default().fg(self.theme.menu_highlight()),
+					),
+					Span::styled(
+						format!("{}/{}", t.players, t.max_players),
+						Style::default().fg(self.theme.menu_unselected()),
+					),
 				]);
 				ListItem::new(line)
 			})
@@ -458,7 +447,6 @@ impl Menu {
 
 	fn draw_lobby(&self, frame: &mut Frame) {
 		let area = frame.area();
-		let table = self.selected_table.as_ref().expect("table selected in lobby state");
 
 		let bg = Block::default().style(Style::default().bg(self.theme.background()));
 		frame.render_widget(bg, area);
@@ -467,51 +455,53 @@ impl Menu {
 			.direction(Direction::Vertical)
 			.constraints([
 				Constraint::Length(3),
-				Constraint::Length(8),
 				Constraint::Min(8),
 				Constraint::Length(3),
 			])
 			.split(area);
 
-		let header = Paragraph::new(format!("  TABLE: {}", table.name))
-			.style(Style::default().fg(self.theme.menu_title()).add_modifier(Modifier::BOLD))
+		let header_text = if let Some(ref err) = self.error_message {
+			format!("  TABLE: {} - {}", self.current_table_name, err)
+		} else {
+			format!("  TABLE: {}", self.current_table_name)
+		};
+		let header_color = if self.error_message.is_some() {
+			self.theme.status_quit()
+		} else {
+			self.theme.menu_title()
+		};
+		let header = Paragraph::new(header_text)
+			.style(Style::default().fg(header_color).add_modifier(Modifier::BOLD))
 			.block(Block::default().borders(Borders::ALL).border_style(Style::default().fg(self.theme.menu_border())));
 		frame.render_widget(header, chunks[0]);
 
-		let info = self.build_table_info(table);
-		let info_widget = Paragraph::new(info)
-			.style(Style::default().fg(self.theme.menu_text()))
-			.block(Block::default().borders(Borders::ALL).border_style(Style::default().fg(self.theme.menu_border())));
-		frame.render_widget(info_widget, chunks[1]);
-
-		let player_lines = self.build_player_list(table);
+		let player_lines = self.build_player_list();
 		let player_list = Paragraph::new(player_lines)
 			.block(
 				Block::default()
 					.title(format!(
 						" PLAYERS ({}/{}) ",
-						self.lobby_players.len(),
-						table.max_players
+						self.players.len(),
+						self.max_players
 					))
 					.borders(Borders::ALL)
 					.border_style(Style::default().fg(self.theme.menu_border())),
 			);
-		frame.render_widget(player_list, chunks[2]);
+		frame.render_widget(player_list, chunks[1]);
 
 		let can_start = self.can_start();
 		let help_text = if can_start {
-			"  [s] Start Game  [a] Add AI  [d] Remove  [Esc] Back  [q] Quit"
+			"  [Enter] Start game  [a] Add AI player  [d] Remove player  [Esc] Back  [q] Quit"
 		} else {
-			format!(
+			Box::leak(format!(
 				"  Need {} more players  [a] Add AI  [Esc] Back  [q] Quit",
-				table.min_players.saturating_sub(self.lobby_players.len())
-			)
-			.leak()
+				self.min_players.saturating_sub(self.players.len())
+			).into_boxed_str())
 		};
 		let help = Paragraph::new(help_text)
 			.style(Style::default().fg(self.theme.menu_unselected()))
 			.block(Block::default().borders(Borders::ALL).border_style(Style::default().fg(self.theme.menu_border())));
-		frame.render_widget(help, chunks[3]);
+		frame.render_widget(help, chunks[2]);
 	}
 
 	fn draw_info_popup(&self, frame: &mut Frame) {
@@ -520,10 +510,10 @@ impl Menu {
 		};
 		let table = &self.tables[idx];
 
-		let toml_str = match toml::to_string_pretty(table) {
-			Ok(s) => s,
-			Err(_) => "Failed to serialize table config".to_string(),
-		};
+		let info_str = format!(
+			"ID: {}\nFormat: {}\nBetting: {}\nBlinds: {}\nPlayers: {}/{}",
+			table.id, table.format, table.betting, table.blinds, table.players, table.max_players
+		);
 
 		let area = frame.area();
 		let popup_width = (area.width * 2 / 3).min(60);
@@ -534,7 +524,7 @@ impl Menu {
 
 		frame.render_widget(Clear, popup_area);
 
-		let popup = Paragraph::new(toml_str)
+		let popup = Paragraph::new(info_str)
 			.style(Style::default().fg(self.theme.menu_text()))
 			.wrap(Wrap { trim: false })
 			.block(
@@ -547,60 +537,19 @@ impl Menu {
 		frame.render_widget(popup, popup_area);
 	}
 
-	fn build_table_info(&self, table: &TableConfig) -> Vec<Line<'static>> {
-		let mut lines = vec![
-			Line::from(format!("  Format:   {}", table.format)),
-			Line::from(format!("  Betting:  {} Hold'em", table.betting)),
-		];
-
-		match table.format {
-			GameFormat::Cash => {
-				let (small, big) = table.current_blinds();
-				lines.push(Line::from(format!("  Blinds:   ${:.0}/${:.0}", small, big)));
-				lines.push(Line::from(format!(
-					"  Buy-in:   ${:.0} - ${:.0}",
-					table.min_buy_in.unwrap_or(0.0),
-					table.max_buy_in.unwrap_or(0.0)
-				)));
-			}
-			GameFormat::SitNGo => {
-				lines.push(Line::from(format!(
-					"  Buy-in:   ${:.0}",
-					table.buy_in.unwrap_or(0.0)
-				)));
-				lines.push(Line::from(format!(
-					"  Stack:    {:.0} chips",
-					table.starting_stack.unwrap_or(0.0)
-				)));
-				if let Some(payouts) = &table.payouts {
-					let payout_str: Vec<String> = payouts
-						.iter()
-						.enumerate()
-						.map(|(i, p)| format!("{}: {:.0}%", ordinal(i + 1), p * 100.0))
-						.collect();
-					lines.push(Line::from(format!("  Payouts:  {}", payout_str.join(" | "))));
-				}
-			}
-		}
-
-		lines
-	}
-
-	fn build_player_list(&self, table: &TableConfig) -> Vec<Line<'static>> {
+	fn build_player_list(&self) -> Vec<Line<'static>> {
 		let mut lines = Vec::new();
 
-		for (i, player) in self.lobby_players.iter().enumerate() {
+		for (i, player) in self.players.iter().enumerate() {
 			let cursor = if i == self.lobby_cursor { "> " } else { "  " };
 			let host_tag = if player.is_host { " (host)" } else { "" };
-			let bankroll = self.bank.get_bankroll(&player.id);
+			let ready_tag = if player.is_ready { " ✓" } else { "" };
 
-			let can_afford = match table.format {
-				GameFormat::Cash => bankroll >= table.min_buy_in.unwrap_or(0.0),
-				GameFormat::SitNGo => bankroll >= table.buy_in.unwrap_or(0.0),
+			let bankroll_str = if let Some(br) = player.bankroll {
+				format!("${:.0}", br)
+			} else {
+				String::new()
 			};
-
-			let status = if can_afford { "Ready" } else { "Broke!" };
-			let status_color = if can_afford { self.theme.stack() } else { self.theme.status_quit() };
 
 			let name_color = if player.is_host {
 				self.theme.menu_host_marker()
@@ -612,14 +561,19 @@ impl Menu {
 
 			lines.push(Line::from(vec![
 				Span::raw(cursor),
-				Span::styled(format!("{:<20}", format!("{}{}", player.id, host_tag)), Style::default().fg(name_color)),
-				Span::styled(format!("${:<12.0}", bankroll), Style::default().fg(self.theme.bet())),
-				Span::styled(status, Style::default().fg(status_color)),
+				Span::styled(
+					format!("{:<20}", format!("{}{}{}", player.name, host_tag, ready_tag)),
+					Style::default().fg(name_color),
+				),
+				Span::styled(
+					format!("{:<12}", bankroll_str),
+					Style::default().fg(self.theme.bet()),
+				),
 			]));
 		}
 
-		if self.lobby_players.len() < table.max_players {
-			let cursor = if self.lobby_cursor == self.lobby_players.len() {
+		if self.players.len() < self.max_players {
+			let cursor = if self.lobby_cursor == self.players.len() {
 				"> "
 			} else {
 				"  "
@@ -631,14 +585,5 @@ impl Menu {
 		}
 
 		lines
-	}
-}
-
-fn ordinal(n: usize) -> String {
-	match n {
-		1 => "1st".to_string(),
-		2 => "2nd".to_string(),
-		3 => "3rd".to_string(),
-		_ => format!("{}th", n),
 	}
 }

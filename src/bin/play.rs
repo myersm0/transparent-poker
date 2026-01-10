@@ -23,7 +23,8 @@ use transparent_poker::config::{load_players_auto, load_strategies_auto};
 use transparent_poker::engine::{BettingStructure, GameRunner, RunnerConfig};
 use transparent_poker::events::{GameEvent, Seat, Standing, ViewUpdater};
 use transparent_poker::logging::{self, tui as log};
-use transparent_poker::menu::{LobbyPlayer, Menu, MenuResult};
+use transparent_poker::lobby::{LocalBackend, LobbyPlayer};
+use transparent_poker::menu::{Menu, MenuResult};
 use transparent_poker::net::{GameClient, GameServer, PlayerInfo, ServerMessage, TableInfo, TableStatus};
 use transparent_poker::players::{ActionRequest, PlayerResponse, RulesPlayer, TerminalPlayer};
 use transparent_poker::table::{load_tables, BlindClock, GameFormat, TableConfig};
@@ -33,7 +34,7 @@ use transparent_poker::view::TableView;
 
 #[derive(Parser)]
 #[command(name = "poker")]
-#[command(about = "Transparent Poker")]
+#[command(about = "Transparent poker - play Texas Hold'em against AI opponents")]
 #[command(version)]
 struct Cli {
 	#[command(subcommand)]
@@ -474,7 +475,7 @@ fn draw_network_lobby(f: &mut Frame, app: &NetworkApp) {
 		])
 		.split(f.area());
 
-	let header = Paragraph::new(format!("Transparent Poker  -  {}", app.username))
+	let header = Paragraph::new(format!("♠ ♥ Poker Lobby ♦ ♣  -  {}", app.username))
 		.style(Style::default().fg(Color::Green))
 		.block(Block::default().borders(Borders::ALL));
 	f.render_widget(header, chunks[0]);
@@ -487,7 +488,7 @@ fn draw_network_lobby(f: &mut Frame, app: &NetworkApp) {
 		};
 		let status = match t.status {
 			TableStatus::Waiting => "Waiting",
-			TableStatus::InProgress => "In progress",
+			TableStatus::InProgress => "In Progress",
 			TableStatus::Finished => "Finished",
 		};
 		let line = format!(
@@ -964,18 +965,26 @@ fn run_app(
 	let bank = Bank::load().map_err(|e| io::Error::new(io::ErrorKind::Other, e))?;
 	let roster = load_players_auto().unwrap_or_default();
 
-	let mut menu = Menu::new(tables, bank, host_id.clone(), roster, theme.clone());
+	let backend = LocalBackend::new(tables, roster, bank, host_id.clone());
+	let mut menu = Menu::new(backend, host_id.clone(), theme.clone());
 
 	match menu.run(terminal)? {
 		MenuResult::Quit => return Ok(()),
 		MenuResult::StartGame { table, players } => {
-			let mut bank = Bank::load().map_err(|e| io::Error::new(io::ErrorKind::Other, e))?;
-			let standings = run_game(terminal, table.clone(), players, &mut bank, &host_id, theme, theme_name, cli_seed)?;
+			let mut backend = menu.into_backend();
+
+			// Map display names to bank ids
+			let name_to_id: std::collections::HashMap<String, String> = players.iter()
+				.map(|p| (p.name.clone(), p.id.clone()))
+				.collect();
+
+			let standings = run_game(terminal, table.clone(), players, backend.bank_mut(), &host_id, theme, theme_name, cli_seed)?;
 
 			match table.format {
 				GameFormat::Cash => {
 					for standing in &standings {
-						bank.cashout(&standing.name, standing.final_stack, &table.id);
+						let bank_id = name_to_id.get(&standing.name).unwrap_or(&standing.name);
+						backend.bank_mut().cashout(bank_id, standing.final_stack, &table.id);
 					}
 				}
 				GameFormat::SitNGo => {
@@ -985,14 +994,15 @@ fn run_app(
 						let payouts = transparent_poker::table::calculate_payouts(buy_in, num_players, payout_pcts);
 						for (i, payout) in payouts.iter().enumerate() {
 							if let Some(standing) = standings.iter().find(|s| s.finish_position == (i + 1) as u8) {
-								bank.award_prize(&standing.name, *payout, i + 1);
+								let bank_id = name_to_id.get(&standing.name).unwrap_or(&standing.name);
+								backend.bank_mut().award_prize(bank_id, *payout, i + 1);
 							}
 						}
 					}
 				}
 			}
 
-			bank.save().map_err(|e| io::Error::new(io::ErrorKind::Other, e))?;
+			backend.bank_mut().save().map_err(|e| io::Error::new(io::ErrorKind::Other, e))?;
 		}
 	}
 
@@ -1063,7 +1073,7 @@ fn run_game(
 	let seating_log: Vec<String> = shuffled_players
 		.iter()
 		.enumerate()
-		.map(|(i, p)| format!("{} -> Seat {}", p.id, i))
+		.map(|(i, p)| format!("{} -> Seat {}", p.name, i))
 		.collect();
 	logging::log("Engine", "SEATING", &seating_log.join(", "));
 
@@ -1076,7 +1086,7 @@ fn run_game(
 		let seat = Seat(seat_idx);
 
 		if lobby_player.is_human {
-			let (player, handle) = TerminalPlayer::new(seat, &lobby_player.id);
+			let (player, handle) = TerminalPlayer::new(seat, &lobby_player.name);
 			runner.add_player(Arc::new(player));
 			human_seat = Some(seat);
 			human_handle = Some(handle);
@@ -1086,7 +1096,7 @@ fn run_game(
 
 			let player = Arc::new(RulesPlayer::new(
 				seat,
-				&lobby_player.id,
+				&lobby_player.name,
 				strategy,
 				big_blind,
 			));

@@ -8,6 +8,7 @@ pub mod bank;
 pub mod config;
 pub mod engine;
 pub mod events;
+pub mod lobby;
 pub mod logging;
 pub mod menu;
 pub mod net;
