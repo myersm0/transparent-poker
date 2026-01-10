@@ -69,6 +69,14 @@ impl EventHistorian {
 		}
 	}
 
+	pub fn hole_cards(&self) -> Arc<Mutex<Vec<Option<[Card; 2]>>>> {
+		Arc::clone(&self.original_hole_cards)
+	}
+
+	pub fn folded(&self) -> Arc<Mutex<Vec<bool>>> {
+		Arc::clone(&self.folded)
+	}
+
 	fn emit(&self, event: GameEvent) {
 		let _ = self.event_tx.send(event);
 	}
@@ -158,6 +166,8 @@ impl Historian for EventHistorian {
 
 					let hole_cards = self.original_hole_cards.lock().unwrap();
 					let folded = self.folded.lock().unwrap();
+					let mut reveals = Vec::new();
+
 					for i in 0..hole_cards.len() {
 						if !folded[i] {
 							if let Some(cards) = &hole_cards[i] {
@@ -172,9 +182,12 @@ impl Historian for EventHistorian {
 									sender: ChatSender::Player(Seat(i)),
 									text: format!("shows {}", card_str),
 								});
+								reveals.push((Seat(i), *cards));
 							}
 						}
 					}
+
+					self.emit(GameEvent::ShowdownReveal { reveals });
 				}
 			}
 

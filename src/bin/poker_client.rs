@@ -60,6 +60,7 @@ struct App {
 
 	// Game state
 	game_ui: Option<GameUI>,
+	game_seat: Option<Seat>,
 	theme_name: String,
 }
 
@@ -77,6 +78,7 @@ impl App {
 			is_ready: false,
 			my_seat: None,
 			game_ui: Some(GameUI::new(None, theme, theme_name.clone())),
+			game_seat: None,
 			theme_name,
 		}
 	}
@@ -131,13 +133,26 @@ impl App {
 	}
 
 	fn handle_game_event(&mut self, event: GameEvent) {
+		// On first HandStarted, determine our game seat by matching username
+		if let GameEvent::HandStarted { seats, .. } = &event {
+			if self.game_seat.is_none() {
+				let found_seat = seats.iter()
+					.find(|s| s.name.eq_ignore_ascii_case(&self.username))
+					.map(|s| s.seat);
+				
+				if let Some(seat) = found_seat {
+					self.game_seat = Some(seat);
+					// Recreate GameUI with correct hero seat
+					if let Some(ref old_ui) = self.game_ui {
+						let theme = old_ui.theme.clone();
+						self.game_ui = Some(GameUI::new(Some(seat), theme, self.theme_name.clone()));
+					}
+				}
+			}
+		}
+
 		if let GameEvent::GameCreated { .. } = &event {
 			self.screen = Screen::Game;
-			// Recreate GameUI with correct hero seat
-			if let Some(ref old_ui) = self.game_ui {
-				let theme = old_ui.theme.clone();
-				self.game_ui = Some(GameUI::new(self.my_seat, theme, self.theme_name.clone()));
-			}
 		}
 
 		if let Some(ref mut ui) = self.game_ui {

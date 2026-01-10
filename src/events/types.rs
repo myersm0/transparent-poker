@@ -105,6 +105,10 @@ pub enum GameEvent {
 		pot_type: PotType,
 	},
 
+	ShowdownReveal {
+		reveals: Vec<(Seat, [Card; 2])>,
+	},
+
 	HandEnded {
 		hand_id: HandId,
 		results: Vec<HandResult>,
