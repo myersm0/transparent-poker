@@ -84,6 +84,7 @@ pub struct TableInfo {
 	pub format: String,
 	pub betting: String,
 	pub blinds: String,
+	pub buy_in: String,
 	pub players: usize,
 	pub max_players: usize,
 	pub status: TableStatus,

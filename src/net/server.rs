@@ -147,12 +147,14 @@ impl TableRoom {
 			(Some(sb), Some(bb)) => format!("${:.0}/${:.0}", sb, bb),
 			_ => "N/A".to_string(),
 		};
+		let buy_in = self.config.effective_buy_in();
 		TableInfo {
 			id: self.config.id.clone(),
 			name: self.config.name.clone(),
 			format: self.config.format.to_string(),
 			betting: self.config.betting.to_string(),
 			blinds,
+			buy_in: format!("${:.0}", buy_in),
 			players: self.player_count(),
 			max_players: self.config.max_players,
 			status: self.status,
@@ -850,6 +852,7 @@ fn start_game(info: GameStartInfo, bank: Arc<Mutex<Bank>>) -> ActiveGame {
 			let delay_ms = match &event {
 				GameEvent::ActionTaken { .. } => action_delay_ms,
 				GameEvent::StreetChanged { .. } => street_delay_ms,
+				GameEvent::ShowdownReveal { .. } => 500,
 				GameEvent::HandEnded { .. } => hand_end_delay_ms,
 				GameEvent::PotAwarded { .. } => 1500,
 				_ => 0,

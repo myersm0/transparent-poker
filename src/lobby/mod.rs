@@ -43,6 +43,9 @@ pub enum LobbyEvent {
 		table: TableConfig,
 		players: Vec<LobbyPlayer>,
 	},
+	NetworkGameStarted {
+		seat: Seat,
+	},
 	Error(String),
 	LeftTable,
 }
@@ -54,6 +57,7 @@ pub struct TableSummary {
 	pub format: String,
 	pub betting: String,
 	pub blinds: String,
+	pub buy_in: String,
 	pub players: usize,
 	pub max_players: usize,
 	pub status: TableStatus,
@@ -67,6 +71,7 @@ impl From<TableInfo> for TableSummary {
 			format: info.format,
 			betting: info.betting,
 			blinds: info.blinds,
+			buy_in: info.buy_in,
 			players: info.players,
 			max_players: info.max_players,
 			status: info.status,
@@ -80,12 +85,14 @@ impl From<&TableConfig> for TableSummary {
 			(Some(sb), Some(bb)) => format!("${:.0}/${:.0}", sb, bb),
 			_ => "N/A".to_string(),
 		};
+		let buy_in = config.effective_buy_in();
 		Self {
 			id: config.id.clone(),
 			name: config.name.clone(),
 			format: config.format.to_string(),
 			betting: config.betting.to_string(),
 			blinds,
+			buy_in: format!("${:.0}", buy_in),
 			players: 0,
 			max_players: config.max_players,
 			status: TableStatus::Waiting,
@@ -232,10 +239,15 @@ impl LobbyBackend for LocalBackend {
 					.or_else(|| available.first().copied());
 
 				if let Some(ai_config) = selected {
-					let seat = Seat(self.lobby_players.len());
+					let next_seat = self.lobby_players.iter()
+						.filter_map(|p| p.seat)
+						.map(|s| s.0)
+						.max()
+						.map(|m| Seat(m + 1))
+						.unwrap_or(Seat(0));
 					let ai_bankroll = self.bank.get_bankroll(&ai_config.id);
 					let player = LobbyPlayer {
-						seat: Some(seat),
+						seat: Some(next_seat),
 						id: ai_config.id.clone(),
 						name: ai_config.display_name(),
 						is_host: false,
@@ -247,7 +259,7 @@ impl LobbyBackend for LocalBackend {
 					self.lobby_players.push(player);
 
 					self.emit(LobbyEvent::PlayerJoined {
-						seat,
+						seat: next_seat,
 						username: ai_config.display_name(),
 						is_ai: true,
 					});
@@ -257,7 +269,6 @@ impl LobbyBackend for LocalBackend {
 			LobbyCommand::RemoveAI(seat) => {
 				if let Some(idx) = self.lobby_players.iter().position(|p| p.seat == Some(seat) && !p.is_human) {
 					self.lobby_players.remove(idx);
-					self.reassign_seats();
 					self.emit(LobbyEvent::PlayerLeft { seat });
 				}
 			}
@@ -362,12 +373,6 @@ impl LocalBackend {
 		}
 	}
 
-	fn reassign_seats(&mut self) {
-		for (i, player) in self.lobby_players.iter_mut().enumerate() {
-			player.seat = Some(Seat(i));
-		}
-	}
-
 	fn all_ready(&self) -> bool {
 		self.lobby_players.iter().all(|p| p.is_ready)
 	}
@@ -385,6 +390,8 @@ impl LocalBackend {
 pub struct NetworkBackend {
 	client: GameClient,
 	pending_events: Vec<LobbyEvent>,
+	my_seat: Option<Seat>,
+	game_started: bool,
 }
 
 impl NetworkBackend {
@@ -392,6 +399,8 @@ impl NetworkBackend {
 		Self {
 			client,
 			pending_events: Vec::new(),
+			my_seat: None,
+			game_started: false,
 		}
 	}
 
@@ -408,6 +417,10 @@ impl NetworkBackend {
 	}
 
 	fn process_server_messages(&mut self) {
+		if self.game_started {
+			return;
+		}
+
 		while let Some(msg) = self.client.try_recv() {
 			match msg {
 				ServerMessage::LobbyState { tables } => {
@@ -416,6 +429,7 @@ impl NetworkBackend {
 				}
 
 				ServerMessage::TableJoined { table_id, table_name, seat, players, min_players, max_players } => {
+					self.my_seat = Some(seat);
 					let lobby_players = players.into_iter().map(|p| p.into()).collect();
 					self.emit(LobbyEvent::TableJoined {
 						table_id,
@@ -456,7 +470,13 @@ impl NetworkBackend {
 				}
 
 				ServerMessage::GameStarting { .. } => {
-					self.emit(LobbyEvent::GameStarting);
+					self.game_started = true;
+					if let Some(seat) = self.my_seat {
+						self.emit(LobbyEvent::NetworkGameStarted { seat });
+					} else {
+						self.emit(LobbyEvent::GameStarting);
+					}
+					return;
 				}
 
 				ServerMessage::Error { message } => {

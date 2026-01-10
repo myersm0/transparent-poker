@@ -10,6 +10,7 @@ use ratatui::{
 	Frame, Terminal,
 };
 
+use crate::events::Seat;
 use crate::lobby::{LobbyBackend, LobbyCommand, LobbyEvent, LobbyPlayer, TableSummary};
 use crate::table::TableConfig;
 use crate::theme::Theme;
@@ -64,6 +65,9 @@ pub enum MenuResult {
 	StartGame {
 		table: TableConfig,
 		players: Vec<LobbyPlayer>,
+	},
+	NetworkGameStarted {
+		seat: Seat,
 	},
 	Quit,
 }
@@ -164,6 +168,9 @@ impl<B: LobbyBackend> Menu<B> {
 				LobbyEvent::GameStarting => {}
 				LobbyEvent::GameReady { table, players } => {
 					return Some(MenuResult::StartGame { table, players });
+				}
+				LobbyEvent::NetworkGameStarted { seat } => {
+					return Some(MenuResult::NetworkGameStarted { seat });
 				}
 				LobbyEvent::Error(msg) => {
 					self.error_message = Some(msg);
@@ -405,12 +412,16 @@ impl<B: LobbyBackend> Menu<B> {
 						Style::default().fg(self.theme.menu_unselected()),
 					),
 					Span::styled(
-						format!("{:<14}", t.betting),
+						format!("{:<12}", t.betting),
 						Style::default().fg(self.theme.menu_highlight()),
 					),
 					Span::styled(
-						format!("{:<10}", t.blinds),
+						format!("{:<12}", t.blinds),
 						Style::default().fg(self.theme.menu_highlight()),
+					),
+					Span::styled(
+						format!("{:<10}", t.buy_in),
+						Style::default().fg(self.theme.bet()),
 					),
 					Span::styled(
 						format!("{}/{}", t.players, t.max_players),
@@ -510,10 +521,17 @@ impl<B: LobbyBackend> Menu<B> {
 		};
 		let table = &self.tables[idx];
 
-		let info_str = format!(
-			"ID: {}\nFormat: {}\nBetting: {}\nBlinds: {}\nPlayers: {}/{}",
-			table.id, table.format, table.betting, table.blinds, table.players, table.max_players
-		);
+		let info_str = if let Some(config) = self.backend.table_config(&table.id) {
+			match toml::to_string_pretty(&config) {
+				Ok(s) => s,
+				Err(_) => "Failed to serialize table config".to_string(),
+			}
+		} else {
+			format!(
+				"ID: {}\nFormat: {}\nBetting: {}\nBlinds: {}\nBuy-in: {}\nPlayers: {}/{}",
+				table.id, table.format, table.betting, table.blinds, table.buy_in, table.players, table.max_players
+			)
+		};
 
 		let area = frame.area();
 		let popup_width = (area.width * 2 / 3).min(60);
