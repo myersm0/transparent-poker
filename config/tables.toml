@@ -35,8 +35,8 @@ rake_cap = 3.0
 no_flop_no_drop = true
 
 [[tables]]
-id = "two-friends"
-name = "The Two Friends"
+id = "promenade"
+name = "The Promenade"
 format = "cash"
 betting = "no-limit"
 small_blind = 1.0
@@ -48,6 +48,54 @@ max_players = 10
 max_raises_per_round = 4
 rake_percent = 0.05
 rake_cap = 3.0
+no_flop_no_drop = true
+
+[[tables]]
+id = "moonlight"
+name = "The Moonlight"
+format = "cash"
+betting = "fixed-limit"
+small_blind = 2.0
+big_blind = 5.0
+min_buy_in = 100.0
+max_buy_in = 500.0
+min_players = 2
+max_players = 10
+max_raises_per_round = 4
+rake_percent = 0.05
+rake_cap = 5.0
+no_flop_no_drop = true
+
+[[tables]]
+id = "regret"
+name = "The Regret"
+format = "cash"
+betting = "pot-limit"
+small_blind = 2.0
+big_blind = 5.0
+min_buy_in = 100.0
+max_buy_in = 500.0
+min_players = 2
+max_players = 10
+max_raises_per_round = 4
+rake_percent = 0.05
+rake_cap = 5.0
+no_flop_no_drop = true
+
+[[tables]]
+id = "confession"
+name = "The Confession"
+format = "cash"
+betting = "no-limit"
+small_blind = 2.0
+big_blind = 5.0
+min_buy_in = 100.0
+max_buy_in = 500.0
+min_players = 2
+max_players = 10
+max_raises_per_round = 4
+rake_percent = 0.05
+rake_cap = 5.0
 no_flop_no_drop = true
 
 [[tables]]
@@ -99,8 +147,56 @@ rake_cap = 6.0
 no_flop_no_drop = true
 
 [[tables]]
-id = "wolf"
-name = "The Wolf"
+id = "signal"
+name = "The Signal"
+format = "cash"
+betting = "fixed-limit"
+small_blind = 4.0
+big_blind = 8.0
+min_buy_in = 160.0
+max_buy_in = 800.0
+min_players = 2
+max_players = 10
+max_raises_per_round = 4
+rake_percent = 0.035
+rake_cap = 7.0
+no_flop_no_drop = true
+
+[[tables]]
+id = "blind-man"
+name = "The Blind Man"
+format = "cash"
+betting = "pot-limit"
+small_blind = 4.0
+big_blind = 8.0
+min_buy_in = 160.0
+max_buy_in = 800.0
+min_players = 2
+max_players = 10
+max_raises_per_round = 4
+rake_percent = 0.035
+rake_cap = 7.0
+no_flop_no_drop = true
+
+[[tables]]
+id = "vendetta"
+name = "The Vendetta"
+format = "cash"
+betting = "no-limit"
+small_blind = 4.0
+big_blind = 8.0
+min_buy_in = 160.0
+max_buy_in = 800.0
+min_players = 2
+max_players = 10
+max_raises_per_round = 4
+rake_percent = 0.035
+rake_cap = 7.0
+no_flop_no_drop = true
+
+[[tables]]
+id = "hand"
+name = "The Hand"
 format = "cash"
 betting = "fixed-limit"
 small_blind = 5.0
@@ -115,8 +211,8 @@ rake_cap = 8.0
 no_flop_no_drop = true
 
 [[tables]]
-id = "apparition"
-name = "The Apparition"
+id = "wolf"
+name = "The Wolf"
 format = "cash"
 betting = "pot-limit"
 small_blind = 5.0
@@ -152,12 +248,12 @@ no_flop_no_drop = true
 # ============================================================================
 
 [[tables]]
-id = "yvette"
-name = "The Yvette"
+id = "olive-field"
+name = "The Olive Field"
 format = "sit-n-go"
 betting = "fixed-limit"
 buy_in = 40.0
-starting_stack = 1500.0
+starting_stack = 1000.0
 min_players = 6
 max_players = 10
 max_raises_per_round = 4
@@ -167,15 +263,25 @@ blind_levels = [
     { small = 15, big = 30, hands = 10 },
     { small = 25, big = 50, hands = 10 },
     { small = 50, big = 100, hands = 10 },
+    { small = 75, big = 150, hands = 10 },
+    { small = 100, big = 200, hands = 10 },
+    { small = 150, big = 300, hands = 10 },
+    { small = 200, big = 400, hands = 10 },
+    { small = 300, big = 600, hands = 10 },
+    { small = 400, big = 800, hands = 10 },
+    { small = 500, big = 1000, hands = 10 },
+    { small = 600, big = 1200, hands = 10 },
+    { small = 800, big = 1600, hands = 10 },
+    { small = 1000, big = 2000, hands = 10 },
 ]
 
 [[tables]]
-id = "mademoiselle-fifi"
-name = "The Mademoiselle Fifi"
+id = "spring-evening"
+name = "The Spring Evening"
 format = "sit-n-go"
 betting = "pot-limit"
 buy_in = 40.0
-starting_stack = 1500.0
+starting_stack = 1000.0
 min_players = 6
 max_players = 10
 max_raises_per_round = 4
@@ -185,15 +291,25 @@ blind_levels = [
     { small = 15, big = 30, hands = 10 },
     { small = 25, big = 50, hands = 10 },
     { small = 50, big = 100, hands = 10 },
+    { small = 75, big = 150, hands = 10 },
+    { small = 100, big = 200, hands = 10 },
+    { small = 150, big = 300, hands = 10 },
+    { small = 200, big = 400, hands = 10 },
+    { small = 300, big = 600, hands = 10 },
+    { small = 400, big = 800, hands = 10 },
+    { small = 500, big = 1000, hands = 10 },
+    { small = 600, big = 1200, hands = 10 },
+    { small = 800, big = 1600, hands = 10 },
+    { small = 1000, big = 2000, hands = 10 },
 ]
 
 [[tables]]
-id = "boule-de-suif"
-name = "The Boule de Suif"
+id = "first-snow"
+name = "The First Snow"
 format = "sit-n-go"
 betting = "no-limit"
 buy_in = 40.0
-starting_stack = 1500.0
+starting_stack = 1000.0
 min_players = 6
 max_players = 10
 max_raises_per_round = 4
@@ -203,24 +319,44 @@ blind_levels = [
     { small = 15, big = 30, hands = 10 },
     { small = 25, big = 50, hands = 10 },
     { small = 50, big = 100, hands = 10 },
+    { small = 75, big = 150, hands = 10 },
+    { small = 100, big = 200, hands = 10 },
+    { small = 150, big = 300, hands = 10 },
+    { small = 200, big = 400, hands = 10 },
+    { small = 300, big = 600, hands = 10 },
+    { small = 400, big = 800, hands = 10 },
+    { small = 500, big = 1000, hands = 10 },
+    { small = 600, big = 1200, hands = 10 },
+    { small = 800, big = 1600, hands = 10 },
+    { small = 1000, big = 2000, hands = 10 },
 ]
 
 [[tables]]
-id = "trial"
-name = "The Trial"
+id = "vigil"
+name = "The Vigil"
 format = "sit-n-go"
 betting = "fixed-limit"
-buy_in = 200.0
-starting_stack = 2500.0
+buy_in = 100.0
+starting_stack = 1000.0
 min_players = 6
 max_players = 10
 max_raises_per_round = 4
 payouts = [0.50, 0.30, 0.20]
 blind_levels = [
-    { small = 15, big = 30, hands = 12 },
-    { small = 25, big = 50, hands = 12 },
+    { small = 10, big = 20, hands = 10 },
+    { small = 15, big = 30, hands = 10 },
+    { small = 25, big = 50, hands = 10 },
     { small = 50, big = 100, hands = 10 },
     { small = 75, big = 150, hands = 10 },
+    { small = 100, big = 200, hands = 10 },
+    { small = 150, big = 300, hands = 10 },
+    { small = 200, big = 400, hands = 10 },
+    { small = 300, big = 600, hands = 10 },
+    { small = 400, big = 800, hands = 10 },
+    { small = 500, big = 1000, hands = 10 },
+    { small = 600, big = 1200, hands = 10 },
+    { small = 800, big = 1600, hands = 10 },
+    { small = 1000, big = 2000, hands = 10 },
 ]
 
 [[tables]]
@@ -228,89 +364,223 @@ id = "model"
 name = "The Model"
 format = "sit-n-go"
 betting = "pot-limit"
-buy_in = 200.0
-starting_stack = 2500.0
+buy_in = 100.0
+starting_stack = 1000.0
 min_players = 6
 max_players = 10
 max_raises_per_round = 4
 payouts = [0.50, 0.30, 0.20]
 blind_levels = [
-    { small = 15, big = 30, hands = 12 },
-    { small = 25, big = 50, hands = 12 },
+    { small = 10, big = 20, hands = 10 },
+    { small = 15, big = 30, hands = 10 },
+    { small = 25, big = 50, hands = 10 },
     { small = 50, big = 100, hands = 10 },
     { small = 75, big = 150, hands = 10 },
+    { small = 100, big = 200, hands = 10 },
+    { small = 150, big = 300, hands = 10 },
+    { small = 200, big = 400, hands = 10 },
+    { small = 300, big = 600, hands = 10 },
+    { small = 400, big = 800, hands = 10 },
+    { small = 500, big = 1000, hands = 10 },
+    { small = 600, big = 1200, hands = 10 },
+    { small = 800, big = 1600, hands = 10 },
+    { small = 1000, big = 2000, hands = 10 },
 ]
 
 [[tables]]
-id = "relic"
-name = "The Relic"
+id = "legend"
+name = "The Legend"
 format = "sit-n-go"
 betting = "no-limit"
-buy_in = 200.0
-starting_stack = 2500.0
+buy_in = 100.0
+starting_stack = 1000.0
 min_players = 6
 max_players = 10
 max_raises_per_round = 4
 payouts = [0.50, 0.30, 0.20]
 blind_levels = [
-    { small = 15, big = 30, hands = 12 },
-    { small = 25, big = 50, hands = 12 },
+    { small = 10, big = 20, hands = 10 },
+    { small = 15, big = 30, hands = 10 },
+    { small = 25, big = 50, hands = 10 },
     { small = 50, big = 100, hands = 10 },
     { small = 75, big = 150, hands = 10 },
+    { small = 100, big = 200, hands = 10 },
+    { small = 150, big = 300, hands = 10 },
+    { small = 200, big = 400, hands = 10 },
+    { small = 300, big = 600, hands = 10 },
+    { small = 400, big = 800, hands = 10 },
+    { small = 500, big = 1000, hands = 10 },
+    { small = 600, big = 1200, hands = 10 },
+    { small = 800, big = 1600, hands = 10 },
+    { small = 1000, big = 2000, hands = 10 },
 ]
 
 [[tables]]
-id = "madwoman"
-name = "The Madwoman"
+id = "yvette"
+name = "The Yvette"
 format = "sit-n-go"
 betting = "fixed-limit"
-buy_in = 500.0
-starting_stack = 3500.0
+buy_in = 200.0
+starting_stack = 1000.0
 min_players = 6
 max_players = 10
 max_raises_per_round = 4
 payouts = [0.50, 0.30, 0.20]
 blind_levels = [
-    { small = 20, big = 40, hands = 12 },
-    { small = 40, big = 80, hands = 12 },
-    { small = 60, big = 120, hands = 10 },
+    { small = 10, big = 20, hands = 10 },
+    { small = 15, big = 30, hands = 10 },
+    { small = 25, big = 50, hands = 10 },
+    { small = 50, big = 100, hands = 10 },
+    { small = 75, big = 150, hands = 10 },
     { small = 100, big = 200, hands = 10 },
+    { small = 150, big = 300, hands = 10 },
+    { small = 200, big = 400, hands = 10 },
+    { small = 300, big = 600, hands = 10 },
+    { small = 400, big = 800, hands = 10 },
+    { small = 500, big = 1000, hands = 10 },
+    { small = 600, big = 1200, hands = 10 },
+    { small = 800, big = 1600, hands = 10 },
+    { small = 1000, big = 2000, hands = 10 },
 ]
 
 [[tables]]
-id = "nightmare"
-name = "The Nightmare"
+id = "mademoiselle-fifi"
+name = "The Mademoiselle Fifi"
 format = "sit-n-go"
 betting = "pot-limit"
-buy_in = 500.0
-starting_stack = 3500.0
+buy_in = 200.0
+starting_stack = 1000.0
 min_players = 6
 max_players = 10
 max_raises_per_round = 4
 payouts = [0.50, 0.30, 0.20]
 blind_levels = [
-    { small = 20, big = 40, hands = 12 },
-    { small = 40, big = 80, hands = 12 },
-    { small = 60, big = 120, hands = 10 },
+    { small = 10, big = 20, hands = 10 },
+    { small = 15, big = 30, hands = 10 },
+    { small = 25, big = 50, hands = 10 },
+    { small = 50, big = 100, hands = 10 },
+    { small = 75, big = 150, hands = 10 },
     { small = 100, big = 200, hands = 10 },
+    { small = 150, big = 300, hands = 10 },
+    { small = 200, big = 400, hands = 10 },
+    { small = 300, big = 600, hands = 10 },
+    { small = 400, big = 800, hands = 10 },
+    { small = 500, big = 1000, hands = 10 },
+    { small = 600, big = 1200, hands = 10 },
+    { small = 800, big = 1600, hands = 10 },
+    { small = 1000, big = 2000, hands = 10 },
 ]
 
 [[tables]]
-id = "revenge"
-name = "The Revenge"
+id = "boul-de-suif"
+name = "The Boul de Suif"
 format = "sit-n-go"
 betting = "no-limit"
-buy_in = 500.0
-starting_stack = 3500.0
+buy_in = 200.0
+starting_stack = 1000.0
 min_players = 6
 max_players = 10
 max_raises_per_round = 4
 payouts = [0.50, 0.30, 0.20]
 blind_levels = [
-    { small = 20, big = 40, hands = 12 },
-    { small = 40, big = 80, hands = 12 },
-    { small = 60, big = 120, hands = 10 },
+    { small = 10, big = 20, hands = 10 },
+    { small = 15, big = 30, hands = 10 },
+    { small = 25, big = 50, hands = 10 },
+    { small = 50, big = 100, hands = 10 },
+    { small = 75, big = 150, hands = 10 },
     { small = 100, big = 200, hands = 10 },
+    { small = 150, big = 300, hands = 10 },
+    { small = 200, big = 400, hands = 10 },
+    { small = 300, big = 600, hands = 10 },
+    { small = 400, big = 800, hands = 10 },
+    { small = 500, big = 1000, hands = 10 },
+    { small = 600, big = 1200, hands = 10 },
+    { small = 800, big = 1600, hands = 10 },
+    { small = 1000, big = 2000, hands = 10 },
+]
+
+[[tables]]
+id = "bel-ami"
+name = "The Bel-Ami"
+format = "sit-n-go"
+betting = "fixed-limit"
+buy_in = 300.0
+starting_stack = 1000.0
+min_players = 6
+max_players = 10
+max_raises_per_round = 4
+payouts = [0.50, 0.30, 0.20]
+blind_levels = [
+    { small = 10, big = 20, hands = 10 },
+    { small = 15, big = 30, hands = 10 },
+    { small = 25, big = 50, hands = 10 },
+    { small = 50, big = 100, hands = 10 },
+    { small = 75, big = 150, hands = 10 },
+    { small = 100, big = 200, hands = 10 },
+    { small = 150, big = 300, hands = 10 },
+    { small = 200, big = 400, hands = 10 },
+    { small = 300, big = 600, hands = 10 },
+    { small = 400, big = 800, hands = 10 },
+    { small = 500, big = 1000, hands = 10 },
+    { small = 600, big = 1200, hands = 10 },
+    { small = 800, big = 1600, hands = 10 },
+    { small = 1000, big = 2000, hands = 10 },
+]
+
+[[tables]]
+id = "mont-oriol"
+name = "The Mont-Oriol"
+format = "sit-n-go"
+betting = "pot-limit"
+buy_in = 300.0
+starting_stack = 1000.0
+min_players = 6
+max_players = 10
+max_raises_per_round = 4
+payouts = [0.50, 0.30, 0.20]
+blind_levels = [
+    { small = 10, big = 20, hands = 10 },
+    { small = 15, big = 30, hands = 10 },
+    { small = 25, big = 50, hands = 10 },
+    { small = 50, big = 100, hands = 10 },
+    { small = 75, big = 150, hands = 10 },
+    { small = 100, big = 200, hands = 10 },
+    { small = 150, big = 300, hands = 10 },
+    { small = 200, big = 400, hands = 10 },
+    { small = 300, big = 600, hands = 10 },
+    { small = 400, big = 800, hands = 10 },
+    { small = 500, big = 1000, hands = 10 },
+    { small = 600, big = 1200, hands = 10 },
+    { small = 800, big = 1600, hands = 10 },
+    { small = 1000, big = 2000, hands = 10 },
+]
+
+[[tables]]
+id = "notre-coeur"
+name = "The Notre Coeur"
+format = "sit-n-go"
+betting = "no-limit"
+buy_in = 300.0
+starting_stack = 1000.0
+min_players = 6
+max_players = 10
+max_raises_per_round = 4
+payouts = [0.50, 0.30, 0.20]
+blind_levels = [
+    { small = 10, big = 20, hands = 10 },
+    { small = 15, big = 30, hands = 10 },
+    { small = 25, big = 50, hands = 10 },
+    { small = 50, big = 100, hands = 10 },
+    { small = 75, big = 150, hands = 10 },
+    { small = 100, big = 200, hands = 10 },
+    { small = 150, big = 300, hands = 10 },
+    { small = 200, big = 400, hands = 10 },
+    { small = 300, big = 600, hands = 10 },
+    { small = 400, big = 800, hands = 10 },
+    { small = 500, big = 1000, hands = 10 },
+    { small = 600, big = 1200, hands = 10 },
+    { small = 800, big = 1600, hands = 10 },
+    { small = 1000, big = 2000, hands = 10 },
 ]
 
 [[tables]]
@@ -319,21 +589,31 @@ name = "The Duel"
 format = "sit-n-go"
 betting = "no-limit"
 buy_in = 500.0
-starting_stack = 2000.0
+starting_stack = 1000.0
 min_players = 2
 max_players = 2
 max_raises_per_round = 4
 payouts = [1.0]
 blind_levels = [
-    { small = 10, big = 20, hands = 15 },
-    { small = 20, big = 40, hands = 15 },
-    { small = 30, big = 60, hands = 12 },
-    { small = 50, big = 100, hands = 12 },
+    { small = 10, big = 20, hands = 5 },
+    { small = 15, big = 30, hands = 5 },
+    { small = 25, big = 50, hands = 5 },
+    { small = 50, big = 100, hands = 5 },
+    { small = 75, big = 150, hands = 5 },
+    { small = 100, big = 200, hands = 5 },
+    { small = 150, big = 300, hands = 5 },
+    { small = 200, big = 400, hands = 5 },
+    { small = 300, big = 600, hands = 5 },
+    { small = 400, big = 800, hands = 5 },
+    { small = 500, big = 1000, hands = 5 },
+    { small = 600, big = 1200, hands = 5 },
+    { small = 800, big = 1600, hands = 5 },
+    { small = 1000, big = 2000, hands = 5 },
 ]
 
 [[tables]]
 id = "who-knows"
-name = "Who knows?"
+name = "Who Knows?"
 format = "sit-n-go"
 betting = "no-limit"
 buy_in = 500.0

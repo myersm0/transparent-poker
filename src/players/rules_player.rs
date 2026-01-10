@@ -1,4 +1,4 @@
-use std::sync::mpsc;
+use async_trait::async_trait;
 use crate::ai::{try_rules, RuleDecision, Situation};
 use crate::events::{Card, GameEvent, PlayerAction, RaiseOptions, Seat, Street, ValidActions};
 use crate::logging::ai as log;
@@ -160,17 +160,16 @@ impl RulesPlayer {
 	}
 }
 
+#[async_trait]
 impl PlayerPort for RulesPlayer {
-	fn request_action(
+	async fn request_action(
 		&self,
 		_seat: Seat,
 		valid_actions: ValidActions,
 		game_state: &GameSnapshot,
-	) -> mpsc::Receiver<PlayerResponse> {
-		let (tx, rx) = mpsc::channel();
+	) -> PlayerResponse {
 		let action = self.decide(&valid_actions, game_state);
-		let _ = tx.send(PlayerResponse::Action(action));
-		rx
+		PlayerResponse::Action(action)
 	}
 
 	fn notify(&self, event: &GameEvent) {

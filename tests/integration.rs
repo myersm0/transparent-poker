@@ -1,8 +1,16 @@
 use std::sync::Arc;
 
+use tokio::runtime::Runtime;
 use transparent_poker::engine::{BettingStructure, GameRunner, RunnerConfig};
 use transparent_poker::events::{GameEvent, PlayerAction, Seat};
 use transparent_poker::players::TestPlayer;
+
+fn create_runner(config: RunnerConfig) -> (GameRunner, transparent_poker::engine::GameHandle, Runtime) {
+	let runtime = Runtime::new().expect("Failed to create tokio runtime");
+	let handle = runtime.handle().clone();
+	let (runner, game_handle) = GameRunner::new(config, handle);
+	(runner, game_handle, runtime)
+}
 
 #[test]
 fn test_heads_up_game_completes() {
@@ -20,7 +28,7 @@ fn test_heads_up_game_completes() {
 		seed: Some(12345),
 	};
 
-	let (mut runner, handle) = GameRunner::new(config);
+	let (mut runner, handle, _runtime) = create_runner(config);
 
 	let alice = Arc::new(
 		TestPlayer::new(Seat(0), "Alice")
@@ -61,7 +69,7 @@ fn test_raise_cap_enforced() {
 		seed: Some(99999),
 	};
 
-	let (mut runner, handle) = GameRunner::new(config);
+	let (mut runner, handle, _runtime) = create_runner(config);
 
 	let raiser = Arc::new(
 		TestPlayer::new(Seat(0), "Raiser")
@@ -127,7 +135,7 @@ fn test_three_player_game_completes() {
 		seed: Some(42),
 	};
 
-	let (mut runner, handle) = GameRunner::new(config);
+	let (mut runner, handle, _runtime) = create_runner(config);
 
 	let alice = Arc::new(
 		TestPlayer::new(Seat(0), "Alice")
@@ -178,7 +186,7 @@ fn test_all_in_scenario() {
 		seed: Some(77777),
 	};
 
-	let (mut runner, handle) = GameRunner::new(config);
+	let (mut runner, handle, _runtime) = create_runner(config);
 
 	let aggressive = Arc::new(
 		TestPlayer::new(Seat(0), "Aggressive")
@@ -231,7 +239,7 @@ fn test_blind_posting() {
 		seed: Some(11111),
 	};
 
-	let (mut runner, handle) = GameRunner::new(config);
+	let (mut runner, handle, _runtime) = create_runner(config);
 
 	let alice = Arc::new(
 		TestPlayer::new(Seat(0), "Alice")
@@ -285,7 +293,7 @@ fn test_hand_started_event() {
 		seed: Some(22222),
 	};
 
-	let (mut runner, handle) = GameRunner::new(config);
+	let (mut runner, handle, _runtime) = create_runner(config);
 
 	let alice = Arc::new(
 		TestPlayer::new(Seat(0), "Alice")
@@ -327,7 +335,7 @@ fn test_folding_player_loses_blinds() {
 		seed: Some(33333),
 	};
 
-	let (mut runner, handle) = GameRunner::new(config);
+	let (mut runner, handle, _runtime) = create_runner(config);
 
 	let folder = Arc::new(
 		TestPlayer::new(Seat(0), "Folder")
@@ -369,7 +377,7 @@ fn test_stack_conservation() {
 		seed: Some(44444),
 	};
 
-	let (mut runner, handle) = GameRunner::new(config);
+	let (mut runner, handle, _runtime) = create_runner(config);
 
 	let alice = Arc::new(
 		TestPlayer::new(Seat(0), "Alice")

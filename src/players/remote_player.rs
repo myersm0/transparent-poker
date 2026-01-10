@@ -1,4 +1,4 @@
-use std::sync::mpsc;
+use async_trait::async_trait;
 use crate::events::{GameEvent, PlayerAction, Seat, ValidActions};
 use crate::players::{GameSnapshot, PlayerPort, PlayerResponse};
 
@@ -25,20 +25,27 @@ impl RemotePlayer {
 	}
 }
 
+#[async_trait]
 impl PlayerPort for RemotePlayer {
-	fn request_action(
+	async fn request_action(
 		&self,
 		_seat: Seat,
 		valid_actions: ValidActions,
 		_game_state: &GameSnapshot,
-	) -> mpsc::Receiver<PlayerResponse> {
-		let (tx, rx) = mpsc::channel();
-
-		// TODO: implement server call
-		// POST {server_url}/v1/action
-		// Authorization: Bearer {auth_token}
-		// Body: { opponent_id, game_state, valid_actions }
-		// Response: { action, chat?, delay_ms? }
+	) -> PlayerResponse {
+		// TODO: implement async server call
+		// let response = reqwest::Client::new()
+		//     .post(&format!("{}/v1/action", self.config.server_url))
+		//     .bearer_auth(&self.config.auth_token)
+		//     .json(&json!({
+		//         "opponent_id": self.config.opponent_id,
+		//         "game_state": game_state,
+		//         "valid_actions": valid_actions,
+		//     }))
+		//     .send()
+		//     .await?
+		//     .json::<ActionResponse>()
+		//     .await?;
 
 		let action = if valid_actions.can_check {
 			PlayerAction::Check
@@ -46,8 +53,7 @@ impl PlayerPort for RemotePlayer {
 			PlayerAction::Fold
 		};
 
-		let _ = tx.send(PlayerResponse::Action(action));
-		rx
+		PlayerResponse::Action(action)
 	}
 
 	fn notify(&self, _event: &GameEvent) {

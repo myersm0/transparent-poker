@@ -1,7 +1,9 @@
 use std::sync::{mpsc, Arc, Mutex};
+use std::sync::atomic::{AtomicBool, Ordering};
 use rand::{Rng, SeedableRng};
 use rand::rngs::StdRng;
 use rs_poker::arena::{Agent, GameState, HoldemSimulationBuilder};
+use tokio::runtime::Handle;
 
 use crate::events::{
 	Blinds, BettingStructure as EventBettingStructure, GameConfig, GameEndReason, GameEvent,
@@ -21,6 +23,8 @@ pub struct GameRunner {
 	action_history: Arc<Mutex<Vec<ActionRecord>>>,
 	blind_clock: Option<BlindClock>,
 	rng: StdRng,
+	runtime_handle: Handle,
+	quit_signal: Arc<AtomicBool>,
 }
 
 pub struct RunnerConfig {
@@ -58,10 +62,11 @@ impl Default for RunnerConfig {
 pub struct GameHandle {
 	pub event_rx: mpsc::Receiver<GameEvent>,
 	pub game_id: GameId,
+	pub quit_signal: Arc<AtomicBool>,
 }
 
 impl GameRunner {
-	pub fn new(config: RunnerConfig) -> (Self, GameHandle) {
+	pub fn new(config: RunnerConfig, runtime_handle: Handle) -> (Self, GameHandle) {
 		let (event_tx, event_rx) = mpsc::channel();
 		let blind_clock = config.blind_clock.clone();
 
@@ -71,6 +76,7 @@ impl GameRunner {
 		};
 
 		let game_id = GameId(rng.random());
+		let quit_signal = Arc::new(AtomicBool::new(false));
 
 		let runner = Self {
 			game_id,
@@ -80,9 +86,15 @@ impl GameRunner {
 			action_history: Arc::new(Mutex::new(Vec::new())),
 			blind_clock,
 			rng,
+			runtime_handle,
+			quit_signal: Arc::clone(&quit_signal),
 		};
 
-		let handle = GameHandle { event_rx, game_id };
+		let handle = GameHandle {
+			event_rx,
+			game_id,
+			quit_signal,
+		};
 
 		(runner, handle)
 	}
@@ -164,6 +176,11 @@ impl GameRunner {
 			hand_num += 1;
 			logging::set_hand_num(hand_num);
 
+			if self.quit_signal.load(Ordering::SeqCst) {
+				logging::engine::game_ended("User quit");
+				break;
+			}
+
 			let active_count = stacks.iter().filter(|&&s| s > 0.0).count();
 			if active_count <= 1 {
 				break;
@@ -240,6 +257,7 @@ impl GameRunner {
 							Arc::clone(&self.action_history),
 							self.event_tx.clone(),
 							self.config.max_raises_per_round,
+							self.runtime_handle.clone(),
 						)) as Box<dyn Agent>
 					}
 				})
@@ -311,8 +329,14 @@ impl GameRunner {
 			s.finish_position = (i + 1) as u8;
 		}
 
+		let reason = if self.quit_signal.load(Ordering::SeqCst) {
+			GameEndReason::HostTerminated
+		} else {
+			GameEndReason::Winner
+		};
+
 		self.emit(GameEvent::GameEnded {
-			reason: GameEndReason::Winner,
+			reason,
 			final_standings: standings,
 		});
 	}

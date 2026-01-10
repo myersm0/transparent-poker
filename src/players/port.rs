@@ -1,13 +1,14 @@
-use std::sync::mpsc;
+use async_trait::async_trait;
 use crate::events::{GameEvent, PlayerAction, Seat, ValidActions};
 
+#[async_trait]
 pub trait PlayerPort: Send + Sync {
-	fn request_action(
+	async fn request_action(
 		&self,
 		seat: Seat,
 		valid_actions: ValidActions,
 		game_state: &GameSnapshot,
-	) -> mpsc::Receiver<PlayerResponse>;
+	) -> PlayerResponse;
 
 	fn notify(&self, event: &GameEvent);
 
