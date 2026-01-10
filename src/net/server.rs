@@ -1,20 +1,16 @@
 use std::collections::HashMap;
 use std::io::{Read, Write};
 use std::net::{TcpListener, TcpStream};
-use std::sync::{Arc, Mutex};
+use std::sync::{mpsc, Arc, Mutex};
 use std::thread;
-
-use tokio::sync::oneshot;
 
 use crate::engine::{BettingStructure, GameRunner, RunnerConfig};
 use crate::events::{Card, GameEvent, PlayerAction, Seat};
-use crate::net::network_player::{submit_action, NetworkPlayer};
 use crate::net::protocol::*;
-use crate::players::PlayerResponse;
+use crate::net::remote_player::RemotePlayer;
 use crate::table::{load_tables, TableConfig};
 
 type ConnectionId = u64;
-type PendingActionSender = Arc<Mutex<Option<oneshot::Sender<PlayerResponse>>>>;
 
 struct Connection {
 	id: ConnectionId,
@@ -31,27 +27,27 @@ impl Connection {
 }
 
 struct ActiveGame {
-	pending_actions: HashMap<Seat, PendingActionSender>,
+	action_senders: HashMap<Seat, mpsc::Sender<PlayerAction>>,
 	conn_to_seat: HashMap<ConnectionId, Seat>,
 }
 
 impl ActiveGame {
 	fn new() -> Self {
 		Self {
-			pending_actions: HashMap::new(),
+			action_senders: HashMap::new(),
 			conn_to_seat: HashMap::new(),
 		}
 	}
 
-	fn register_player(&mut self, conn_id: ConnectionId, seat: Seat, pending: PendingActionSender) {
-		self.pending_actions.insert(seat, pending);
+	fn register_player(&mut self, conn_id: ConnectionId, seat: Seat, action_tx: mpsc::Sender<PlayerAction>) {
+		self.action_senders.insert(seat, action_tx);
 		self.conn_to_seat.insert(conn_id, seat);
 	}
 
 	fn submit_action(&self, conn_id: ConnectionId, action: PlayerAction) -> Result<(), String> {
 		let seat = self.conn_to_seat.get(&conn_id).ok_or("Player not in game")?;
-		let pending = self.pending_actions.get(seat).ok_or("No pending action for seat")?;
-		submit_action(pending, action)
+		let tx = self.action_senders.get(seat).ok_or("No action channel for seat")?;
+		tx.send(action).map_err(|_| "Failed to send action".to_string())
 	}
 }
 
@@ -493,6 +489,7 @@ fn start_game(
 	config: TableConfig,
 	player_data: Vec<(ConnectionId, Seat, String, TcpStream)>,
 ) -> ActiveGame {
+	println!("start_game called with {} players", player_data.len());
 	let mut active_game = ActiveGame::new();
 
 	let runtime = tokio::runtime::Builder::new_multi_thread()
@@ -508,26 +505,63 @@ fn start_game(
 	let mut player_streams: Vec<(Seat, Arc<Mutex<TcpStream>>)> = Vec::new();
 
 	for (conn_id, seat, username, stream) in player_data {
+		println!("  Adding player: {} at seat {:?}", username, seat);
 		// Clone stream for event forwarding
 		if let Ok(stream_for_events) = stream.try_clone() {
 			player_streams.push((seat, Arc::new(Mutex::new(stream_for_events))));
+		} else {
+			println!("  WARNING: Failed to clone stream for seat {:?}", seat);
 		}
 
-		let player = NetworkPlayer::new(seat, username, stream);
-		let pending = player.pending_action_sender();
-		active_game.register_player(conn_id, seat, pending);
+		// Create channel for actions
+		let (action_tx, action_rx) = mpsc::channel();
+		active_game.register_player(conn_id, seat, action_tx);
+
+		let player = RemotePlayer::new(seat, username, action_rx);
 		runner.add_player(Arc::new(player));
 	}
 
+	println!("Starting game thread...");
 	thread::spawn(move || {
 		let _rt_guard = runtime.enter();
+		println!("Game thread running, calling runner.run()");
 		runner.run();
 		println!("Game ended");
 	});
 
 	// Forward events to all players with filtering and pacing
+	let player_count = player_streams.len();
+	println!("Event forwarder started for {} players", player_count);
+
 	thread::spawn(move || {
 		while let Ok(event) = game_handle.event_rx.recv() {
+			println!("Forwarding event: {:?}", std::mem::discriminant(&event));
+
+			for (seat, stream) in &player_streams {
+				let filtered = filter_event_for_seat(&event, *seat);
+				let msg = ServerMessage::GameEvent(filtered);
+				let data = encode_message(&msg);
+				if let Ok(mut s) = stream.lock() {
+					match s.write_all(&data) {
+						Ok(_) => println!("  Sent to seat {:?}", seat),
+						Err(e) => println!("  Failed to send to seat {:?}: {}", seat, e),
+					}
+
+					// If this is an ActionRequest for this seat, send the ActionRequest message
+					if let GameEvent::ActionRequest { seat: action_seat, valid_actions, .. } = &event {
+						if action_seat == seat {
+							let action_msg = ServerMessage::ActionRequest {
+								valid_actions: valid_actions.clone(),
+								time_limit: Some(120),
+							};
+							let action_data = encode_message(&action_msg);
+							let _ = s.write_all(&action_data);
+							println!("  Sent ActionRequest to seat {:?}", seat);
+						}
+					}
+				}
+			}
+
 			// Add delay after certain events
 			let delay_ms = match &event {
 				GameEvent::ActionTaken { .. } => 300,
@@ -537,19 +571,11 @@ fn start_game(
 				_ => 0,
 			};
 
-			for (seat, stream) in &player_streams {
-				let filtered = filter_event_for_seat(&event, *seat);
-				let msg = ServerMessage::GameEvent(filtered);
-				let data = encode_message(&msg);
-				if let Ok(mut s) = stream.lock() {
-					let _ = s.write_all(&data);
-				}
-			}
-
 			if delay_ms > 0 {
 				thread::sleep(std::time::Duration::from_millis(delay_ms));
 			}
 		}
+		println!("Event forwarder exited");
 	});
 
 	active_game
