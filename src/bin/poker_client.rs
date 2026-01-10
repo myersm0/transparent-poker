@@ -15,11 +15,11 @@ use ratatui::{
 	Frame, Terminal,
 };
 
-use transparent_poker::events::{GameEvent, Seat, ViewUpdater};
-use transparent_poker::net::{GameClient, PlayerInfo, ServerMessage, TableInfo};
+use transparent_poker::events::{GameEvent, Seat};
+use transparent_poker::net::{GameClient, PlayerInfo, ServerMessage, TableInfo, TableStatus};
+use transparent_poker::players::PlayerResponse;
 use transparent_poker::theme::Theme;
-use transparent_poker::tui::{InputEffect, InputState, TableWidget};
-use transparent_poker::view::TableView;
+use transparent_poker::tui::{GameUI, GameUIAction};
 
 #[derive(Parser)]
 #[command(name = "poker-client")]
@@ -37,7 +37,6 @@ struct Cli {
 
 #[derive(PartialEq)]
 enum Screen {
-	Login,
 	Lobby,
 	Table,
 	Game,
@@ -47,7 +46,6 @@ struct App {
 	screen: Screen,
 	client: GameClient,
 	username: String,
-	theme: Theme,
 
 	// Lobby state
 	tables: Vec<TableInfo>,
@@ -61,19 +59,16 @@ struct App {
 	my_seat: Option<Seat>,
 
 	// Game state
-	table_view: TableView,
-	view_updater: Option<ViewUpdater>,
-	input_state: InputState,
-	status_message: Option<String>,
+	game_ui: Option<GameUI>,
+	theme_name: String,
 }
 
 impl App {
-	fn new(client: GameClient, username: String, theme: Theme) -> Self {
+	fn new(client: GameClient, username: String, theme: Theme, theme_name: String) -> Self {
 		Self {
 			screen: Screen::Lobby,
 			client,
 			username,
-			theme,
 			tables: Vec::new(),
 			selected_table: 0,
 			current_table: None,
@@ -81,10 +76,8 @@ impl App {
 			players: Vec::new(),
 			is_ready: false,
 			my_seat: None,
-			table_view: TableView::new(),
-			view_updater: None,
-			input_state: InputState::default(),
-			status_message: None,
+			game_ui: Some(GameUI::new(None, theme, theme_name.clone())),
+			theme_name,
 		}
 	}
 
@@ -117,18 +110,20 @@ impl App {
 					}
 				}
 				ServerMessage::GameStarting { .. } => {
-					self.status_message = Some("Game starting...".to_string());
+					// Game is about to start
 				}
 				ServerMessage::GameEvent(event) => {
 					self.handle_game_event(event);
 				}
 				ServerMessage::ActionRequest { valid_actions, .. } => {
-					let (state, effect) = InputState::enter_action_mode(valid_actions);
-					self.input_state = state;
-					self.execute_effect(effect);
+					if let Some(ref mut ui) = self.game_ui {
+						ui.enter_action_mode(valid_actions);
+					}
 				}
 				ServerMessage::Error { message } => {
-					self.status_message = Some(format!("Error: {}", message));
+					if let Some(ref mut ui) = self.game_ui {
+						ui.status_message = Some(format!("Error: {}", message));
+					}
 				}
 				_ => {}
 			}
@@ -136,47 +131,17 @@ impl App {
 	}
 
 	fn handle_game_event(&mut self, event: GameEvent) {
-		match &event {
-			GameEvent::GameCreated { .. } => {
-				self.screen = Screen::Game;
-				self.view_updater = Some(ViewUpdater::new(self.my_seat));
-				self.table_view = TableView::new();
+		if let GameEvent::GameCreated { .. } = &event {
+			self.screen = Screen::Game;
+			// Recreate GameUI with correct hero seat
+			if let Some(ref old_ui) = self.game_ui {
+				let theme = old_ui.theme.clone();
+				self.game_ui = Some(GameUI::new(self.my_seat, theme, self.theme_name.clone()));
 			}
-			GameEvent::HandStarted { .. } => {
-				// Don't reset table_view - ViewUpdater handles resetting fields
-				// This preserves chat history from previous hand
-				self.input_state = InputState::default();
-			}
-			_ => {}
 		}
 
-		if let Some(ref updater) = self.view_updater {
-			updater.apply(&mut self.table_view, &event);
-		}
-	}
-
-	fn execute_effect(&mut self, effect: InputEffect) {
-		match effect {
-			InputEffect::None => {}
-			InputEffect::SetPrompt(prompt) => {
-				self.status_message = Some(prompt);
-			}
-			InputEffect::ClearPrompt => {
-				self.status_message = None;
-			}
-			InputEffect::Respond(response) => {
-				if let transparent_poker::players::PlayerResponse::Action(action) = response {
-					let _ = self.client.action(action);
-				}
-				self.status_message = None;
-				self.input_state = InputState::default();
-			}
-			InputEffect::CycleTheme => {
-				// Could implement theme cycling
-			}
-			InputEffect::Quit => {
-				// Handle quit - back to lobby or exit
-			}
+		if let Some(ref mut ui) = self.game_ui {
+			ui.apply_event(&event);
 		}
 	}
 }
@@ -184,8 +149,8 @@ impl App {
 fn main() -> io::Result<()> {
 	let cli = Cli::parse();
 
-	let theme = Theme::load_named(cli.theme.as_deref().unwrap_or("classic"))
-		.unwrap_or_default();
+	let theme_name = cli.theme.as_deref().unwrap_or("classic").to_string();
+	let theme = Theme::load_named(&theme_name).unwrap_or_default();
 
 	println!("Connecting to {}...", cli.server);
 	let mut client = GameClient::connect(&cli.server)?;
@@ -197,12 +162,10 @@ fn main() -> io::Result<()> {
 	});
 
 	client.login(&username)?;
-	// Wait for welcome
 	std::thread::sleep(Duration::from_millis(100));
-
 	client.list_tables()?;
 
-	let mut app = App::new(client, username, theme);
+	let mut app = App::new(client, username, theme, theme_name);
 
 	enable_raw_mode()?;
 	let mut stdout = stdout();
@@ -224,10 +187,13 @@ fn run_app(terminal: &mut Terminal<CrosstermBackend<io::Stdout>>, app: &mut App)
 
 		terminal.draw(|f| {
 			match app.screen {
-				Screen::Login => draw_login(f, app),
 				Screen::Lobby => draw_lobby(f, app),
 				Screen::Table => draw_table_waiting(f, app),
-				Screen::Game => draw_game(f, app),
+				Screen::Game => {
+					if let Some(ref ui) = app.game_ui {
+						ui.render(f, f.area());
+					}
+				}
 			}
 		})?;
 
@@ -246,10 +212,21 @@ fn run_app(terminal: &mut Terminal<CrosstermBackend<io::Stdout>>, app: &mut App)
 				}
 
 				match app.screen {
-					Screen::Login => {}
 					Screen::Lobby => handle_lobby_input(app, key.code),
 					Screen::Table => handle_table_input(app, key.code),
-					Screen::Game => handle_game_input(app, key.code),
+					Screen::Game => {
+						if let Some(ref mut ui) = app.game_ui {
+							match ui.handle_key(key.code) {
+								GameUIAction::Respond(PlayerResponse::Action(action)) => {
+									let _ = app.client.action(action);
+								}
+								GameUIAction::Quit => {
+									return Ok(());
+								}
+								_ => {}
+							}
+						}
+					}
 				}
 			}
 		}
@@ -297,17 +274,6 @@ fn handle_table_input(app: &mut App, key: KeyCode) {
 	}
 }
 
-fn handle_game_input(app: &mut App, key: KeyCode) {
-	let (new_state, effect) = app.input_state.clone().handle_key(key);
-	app.input_state = new_state;
-	app.execute_effect(effect);
-}
-
-fn draw_login(f: &mut Frame, _app: &App) {
-	let block = Block::default().title("Login").borders(Borders::ALL);
-	f.render_widget(block, f.area());
-}
-
 fn draw_lobby(f: &mut Frame, app: &App) {
 	let chunks = Layout::default()
 		.direction(Direction::Vertical)
@@ -332,9 +298,9 @@ fn draw_lobby(f: &mut Frame, app: &App) {
 			Style::default()
 		};
 		let status = match t.status {
-			transparent_poker::net::TableStatus::Waiting => "Waiting",
-			transparent_poker::net::TableStatus::InProgress => "In Progress",
-			transparent_poker::net::TableStatus::Finished => "Finished",
+			TableStatus::Waiting => "Waiting",
+			TableStatus::InProgress => "In Progress",
+			TableStatus::Finished => "Finished",
 		};
 		let line = format!(
 			"{} {} - {} {} ({}/{}) [{}]",
@@ -411,25 +377,4 @@ fn draw_table_waiting(f: &mut Frame, app: &App) {
 		.style(Style::default().fg(Color::DarkGray))
 		.block(Block::default().borders(Borders::ALL));
 	f.render_widget(help, chunks[2]);
-}
-
-fn draw_game(f: &mut Frame, app: &App) {
-	let chunks = Layout::default()
-		.direction(Direction::Vertical)
-		.constraints([
-			Constraint::Min(20),
-			Constraint::Length(3),
-		])
-		.split(f.area());
-
-	// Table
-	let table_widget = TableWidget::new(&app.table_view, &app.theme);
-	f.render_widget(table_widget, chunks[0]);
-
-	// Action bar
-	let action_text = app.status_message.clone().unwrap_or_default();
-	let action_bar = Paragraph::new(action_text)
-		.style(Style::default().fg(Color::Yellow))
-		.block(Block::default().borders(Borders::ALL).title("Action"));
-	f.render_widget(action_bar, chunks[1]);
 }

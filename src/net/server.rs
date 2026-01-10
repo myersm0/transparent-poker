@@ -13,7 +13,6 @@ use crate::table::{load_tables, TableConfig};
 type ConnectionId = u64;
 
 struct Connection {
-	id: ConnectionId,
 	username: Option<String>,
 	stream: TcpStream,
 	current_table: Option<String>,
@@ -196,7 +195,6 @@ fn handle_connection(
 ) {
 	let stream_clone = stream.try_clone().unwrap();
 	let conn = Connection {
-		id: conn_id,
 		username: None,
 		stream: stream_clone,
 		current_table: None,
@@ -489,7 +487,6 @@ fn start_game(
 	config: TableConfig,
 	player_data: Vec<(ConnectionId, Seat, String, TcpStream)>,
 ) -> ActiveGame {
-	println!("start_game called with {} players", player_data.len());
 	let mut active_game = ActiveGame::new();
 
 	let runtime = tokio::runtime::Builder::new_multi_thread()
@@ -501,53 +498,39 @@ fn start_game(
 	let runner_config = build_runner_config(&config);
 	let (mut runner, game_handle) = GameRunner::new(runner_config, runtime_handle);
 
-	// Collect streams for event forwarding
+	// Collect streams for event forwarding - use sequential game seats (0, 1, 2, ...)
 	let mut player_streams: Vec<(Seat, Arc<Mutex<TcpStream>>)> = Vec::new();
 
-	for (conn_id, seat, username, stream) in player_data {
-		println!("  Adding player: {} at seat {:?}", username, seat);
-		// Clone stream for event forwarding
+	for (idx, (conn_id, _lobby_seat, username, stream)) in player_data.into_iter().enumerate() {
+		let game_seat = Seat(idx);
+
 		if let Ok(stream_for_events) = stream.try_clone() {
-			player_streams.push((seat, Arc::new(Mutex::new(stream_for_events))));
-		} else {
-			println!("  WARNING: Failed to clone stream for seat {:?}", seat);
+			player_streams.push((game_seat, Arc::new(Mutex::new(stream_for_events))));
 		}
 
-		// Create channel for actions
 		let (action_tx, action_rx) = mpsc::channel();
-		active_game.register_player(conn_id, seat, action_tx);
+		active_game.register_player(conn_id, game_seat, action_tx);
 
-		let player = RemotePlayer::new(seat, username, action_rx);
+		let player = RemotePlayer::new(game_seat, username, action_rx);
 		runner.add_player(Arc::new(player));
 	}
 
-	println!("Starting game thread...");
 	thread::spawn(move || {
 		let _rt_guard = runtime.enter();
-		println!("Game thread running, calling runner.run()");
 		runner.run();
-		println!("Game ended");
 	});
 
 	// Forward events to all players with filtering and pacing
-	let player_count = player_streams.len();
-	println!("Event forwarder started for {} players", player_count);
-
 	thread::spawn(move || {
 		while let Ok(event) = game_handle.event_rx.recv() {
-			println!("Forwarding event: {:?}", std::mem::discriminant(&event));
-
 			for (seat, stream) in &player_streams {
 				let filtered = filter_event_for_seat(&event, *seat);
 				let msg = ServerMessage::GameEvent(filtered);
 				let data = encode_message(&msg);
 				if let Ok(mut s) = stream.lock() {
-					match s.write_all(&data) {
-						Ok(_) => println!("  Sent to seat {:?}", seat),
-						Err(e) => println!("  Failed to send to seat {:?}: {}", seat, e),
-					}
+					let _ = s.write_all(&data);
 
-					// If this is an ActionRequest for this seat, send the ActionRequest message
+					// Send ActionRequest message to the acting player
 					if let GameEvent::ActionRequest { seat: action_seat, valid_actions, .. } = &event {
 						if action_seat == seat {
 							let action_msg = ServerMessage::ActionRequest {
@@ -556,7 +539,6 @@ fn start_game(
 							};
 							let action_data = encode_message(&action_msg);
 							let _ = s.write_all(&action_data);
-							println!("  Sent ActionRequest to seat {:?}", seat);
 						}
 					}
 				}
@@ -575,7 +557,6 @@ fn start_game(
 				thread::sleep(std::time::Duration::from_millis(delay_ms));
 			}
 		}
-		println!("Event forwarder exited");
 	});
 
 	active_game
