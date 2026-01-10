@@ -4,11 +4,17 @@ use std::net::{TcpListener, TcpStream};
 use std::sync::{Arc, Mutex};
 use std::thread;
 
-use crate::events::Seat;
+use tokio::sync::oneshot;
+
+use crate::engine::{BettingStructure, GameRunner, RunnerConfig};
+use crate::events::{PlayerAction, Seat};
+use crate::net::network_player::{submit_action, NetworkPlayer};
 use crate::net::protocol::*;
+use crate::players::PlayerResponse;
 use crate::table::{load_tables, TableConfig};
 
 type ConnectionId = u64;
+type PendingActionSender = Arc<Mutex<Option<oneshot::Sender<PlayerResponse>>>>;
 
 struct Connection {
 	id: ConnectionId,
@@ -24,11 +30,37 @@ impl Connection {
 	}
 }
 
+struct ActiveGame {
+	pending_actions: HashMap<Seat, PendingActionSender>,
+	conn_to_seat: HashMap<ConnectionId, Seat>,
+}
+
+impl ActiveGame {
+	fn new() -> Self {
+		Self {
+			pending_actions: HashMap::new(),
+			conn_to_seat: HashMap::new(),
+		}
+	}
+
+	fn register_player(&mut self, conn_id: ConnectionId, seat: Seat, pending: PendingActionSender) {
+		self.pending_actions.insert(seat, pending);
+		self.conn_to_seat.insert(conn_id, seat);
+	}
+
+	fn submit_action(&self, conn_id: ConnectionId, action: PlayerAction) -> Result<(), String> {
+		let seat = self.conn_to_seat.get(&conn_id).ok_or("Player not in game")?;
+		let pending = self.pending_actions.get(seat).ok_or("No pending action for seat")?;
+		submit_action(pending, action)
+	}
+}
+
 struct TableRoom {
 	config: TableConfig,
 	players: HashMap<Seat, ConnectionId>,
 	ready: HashMap<Seat, bool>,
 	status: TableStatus,
+	active_game: Option<ActiveGame>,
 }
 
 impl TableRoom {
@@ -38,6 +70,7 @@ impl TableRoom {
 			players: HashMap::new(),
 			ready: HashMap::new(),
 			status: TableStatus::Waiting,
+			active_game: None,
 		}
 	}
 
@@ -369,15 +402,51 @@ fn process_message(
 						}
 						let starting_msg = ServerMessage::GameStarting { countdown: 3 };
 						broadcast_to_table(&tid, &starting_msg, &mut tables_lock, &mut conns);
-						// TODO: Actually start the game
+
+						// Collect info for game start
+						let game_info: Option<(TableConfig, Vec<(ConnectionId, Seat, String, TcpStream)>)> = {
+							if let Some(table) = tables_lock.get(&tid) {
+								let mut player_data = Vec::new();
+								for (&seat, &cid) in &table.players {
+									if let Some(conn) = conns.get(&cid) {
+										let username = conn.username.clone().unwrap_or_else(|| "Unknown".to_string());
+										if let Ok(stream_clone) = conn.stream.try_clone() {
+											player_data.push((cid, seat, username, stream_clone));
+										}
+									}
+								}
+								Some((table.config.clone(), player_data))
+							} else {
+								None
+							}
+						};
+
+						// Start game outside of heavy lock usage
+						if let Some((config, player_data)) = game_info {
+							let active_game = start_game(config, player_data);
+							if let Some(table) = tables_lock.get_mut(&tid) {
+								table.active_game = Some(active_game);
+							}
+						}
 					}
 				}
 			}
 		}
 
 		ClientMessage::Action { action } => {
-			// TODO: Forward to game runner
-			println!("Received action from {}: {:?}", conn_id, action);
+			let conns = connections.lock().unwrap();
+			let tables_lock = tables.lock().unwrap();
+
+			let table_id = conns.get(&conn_id).and_then(|c| c.current_table.clone());
+			if let Some(tid) = table_id {
+				if let Some(table) = tables_lock.get(&tid) {
+					if let Some(ref active_game) = table.active_game {
+						if let Err(e) = active_game.submit_action(conn_id, action) {
+							println!("Action error: {}", e);
+						}
+					}
+				}
+			}
 		}
 
 		ClientMessage::Chat { text } => {
@@ -417,5 +486,66 @@ fn broadcast_to_table_except(
 				}
 			}
 		}
+	}
+}
+
+fn start_game(
+	config: TableConfig,
+	player_data: Vec<(ConnectionId, Seat, String, TcpStream)>,
+) -> ActiveGame {
+	let mut active_game = ActiveGame::new();
+
+	let runtime = tokio::runtime::Builder::new_multi_thread()
+		.enable_all()
+		.build()
+		.unwrap();
+	let runtime_handle = runtime.handle().clone();
+
+	let runner_config = build_runner_config(&config);
+	let (mut runner, game_handle) = GameRunner::new(runner_config, runtime_handle);
+
+	for (conn_id, seat, username, stream) in player_data {
+		let player = NetworkPlayer::new(seat, username, stream);
+		let pending = player.pending_action_sender();
+		active_game.register_player(conn_id, seat, pending);
+		runner.add_player(Arc::new(player));
+	}
+
+	thread::spawn(move || {
+		let _rt_guard = runtime.enter();
+		runner.run();
+		println!("Game ended");
+	});
+
+	// Drain event channel (events are sent directly by NetworkPlayer::notify)
+	thread::spawn(move || {
+		while let Ok(_event) = game_handle.event_rx.recv() {
+			// Events forwarded by NetworkPlayer::notify
+		}
+	});
+
+	active_game
+}
+
+fn build_runner_config(table: &TableConfig) -> RunnerConfig {
+	let (small_blind, big_blind) = table.current_blinds();
+	let starting_stack = table.effective_starting_stack();
+
+	RunnerConfig {
+		small_blind,
+		big_blind,
+		starting_stack,
+		betting_structure: match table.betting {
+			crate::table::BettingStructure::NoLimit => BettingStructure::NoLimit,
+			crate::table::BettingStructure::PotLimit => BettingStructure::PotLimit,
+			crate::table::BettingStructure::FixedLimit => BettingStructure::FixedLimit,
+		},
+		blind_clock: None,
+		max_raises_per_round: table.max_raises_per_round,
+		rake_percent: table.rake_percent,
+		rake_cap: table.rake_cap,
+		no_flop_no_drop: table.no_flop_no_drop,
+		max_hands: None,
+		seed: table.seed,
 	}
 }
