@@ -110,13 +110,36 @@ impl PlayerAdapter {
 			self.compute_raise_options(game_state, stack, current_bet, min_raise)
 		};
 
+		let all_in_amount = stack + my_bet;
+		let can_all_in = if stack <= 0.0 || raise_cap_reached {
+			false
+		} else {
+			match self.betting_structure {
+				BettingStructure::NoLimit => true,
+				BettingStructure::PotLimit => {
+					let pot = game_state.total_pot;
+					let pot_after_call = pot + to_call;
+					let max_bet_to = current_bet + pot_after_call;
+					all_in_amount <= max_bet_to
+				}
+				BettingStructure::FixedLimit => {
+					let bet_size = match game_state.round {
+						Round::Preflop | Round::Flop => game_state.big_blind,
+						_ => game_state.big_blind * 2.0,
+					};
+					let max_bet_to = current_bet + bet_size;
+					all_in_amount <= max_bet_to
+				}
+			}
+		};
+
 		ValidActions {
 			can_fold: to_call > 0.0,
 			can_check,
 			call_amount,
 			raise_options,
-			can_all_in: stack > 0.0 && !raise_cap_reached,
-			all_in_amount: stack + my_bet,
+			can_all_in,
+			all_in_amount,
 		}
 	}
 
@@ -160,9 +183,9 @@ impl PlayerAdapter {
 			BettingStructure::PotLimit => {
 				let pot = game_state.total_pot;
 				let to_call = current_bet - my_bet;
-				let max_raise = pot + to_call * 2.0;
+				let pot_after_call = pot + to_call;
 				let min_raise_to = current_bet + min_raise;
-				let max_raise_to = (current_bet + max_raise).min(stack + my_bet);
+				let max_raise_to = (current_bet + pot_after_call).min(stack + my_bet);
 
 				if max_raise_to >= min_raise_to {
 					Some(RaiseOptions::Variable {
