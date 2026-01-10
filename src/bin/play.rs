@@ -33,7 +33,7 @@ use transparent_poker::view::TableView;
 
 #[derive(Parser)]
 #[command(name = "poker")]
-#[command(about = "Transparent poker")]
+#[command(about = "Transparent Poker")]
 #[command(version)]
 struct Cli {
 	#[command(subcommand)]
@@ -325,6 +325,7 @@ impl NetworkApp {
 					}
 				}
 				ServerMessage::Error { message } => {
+					self.error_message = Some(message.clone());
 					if let Some(ref mut ui) = self.game_ui {
 						ui.status_message = Some(format!("Error: {}", message));
 					}
@@ -437,6 +438,7 @@ fn handle_network_lobby_input(app: &mut NetworkApp, key: KeyCode) {
 }
 
 fn handle_network_table_input(app: &mut NetworkApp, key: KeyCode) {
+	app.error_message = None;
 	match key {
 		KeyCode::Char('r') => {
 			if !app.is_ready {
@@ -485,7 +487,7 @@ fn draw_network_lobby(f: &mut Frame, app: &NetworkApp) {
 		};
 		let status = match t.status {
 			TableStatus::Waiting => "Waiting",
-			TableStatus::InProgress => "In Progress",
+			TableStatus::InProgress => "In progress",
 			TableStatus::Finished => "Finished",
 		};
 		let line = format!(
@@ -521,8 +523,14 @@ fn draw_network_table(f: &mut Frame, app: &NetworkApp) {
 		])
 		.split(f.area());
 
-	let header = Paragraph::new(format!("Table: {}", app.table_name))
-		.style(Style::default().fg(Color::Green))
+	let header_text = if let Some(ref err) = app.error_message {
+		format!("Table: {} - Error: {}", app.table_name, err)
+	} else {
+		format!("Table: {}", app.table_name)
+	};
+	let header_color = if app.error_message.is_some() { Color::Red } else { Color::Green };
+	let header = Paragraph::new(header_text)
+		.style(Style::default().fg(header_color))
 		.block(Block::default().borders(Borders::ALL));
 	f.render_widget(header, chunks[0]);
 
