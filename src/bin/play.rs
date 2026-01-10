@@ -33,7 +33,7 @@ use transparent_poker::view::TableView;
 
 #[derive(Parser)]
 #[command(name = "poker")]
-#[command(about = "Transparent poker - play Texas Hold'em against AI opponents")]
+#[command(about = "Transparent poker")]
 #[command(version)]
 struct Cli {
 	#[command(subcommand)]
@@ -253,6 +253,7 @@ struct NetworkApp {
 	players: Vec<PlayerInfo>,
 	is_ready: bool,
 	my_seat: Option<Seat>,
+	error_message: Option<String>,
 
 	// Game state
 	game_ui: Option<GameUI>,
@@ -273,6 +274,7 @@ impl NetworkApp {
 			players: Vec::new(),
 			is_ready: false,
 			my_seat: None,
+			error_message: None,
 			game_ui: Some(GameUI::new(None, theme, theme_name.clone())),
 			game_seat: None,
 			theme_name,
@@ -444,6 +446,12 @@ fn handle_network_table_input(app: &mut NetworkApp, key: KeyCode) {
 		KeyCode::Char('a') => {
 			let _ = app.client.add_ai(None);
 		}
+		KeyCode::Char('d') | KeyCode::Delete | KeyCode::Backspace => {
+			// Remove last AI (highest seat number)
+			if let Some(ai) = app.players.iter().filter(|p| p.is_ai).last() {
+				let _ = app.client.remove_ai(ai.seat);
+			}
+		}
 		KeyCode::Char('l') | KeyCode::Esc => {
 			let _ = app.client.leave_table();
 			app.current_table = None;
@@ -464,7 +472,7 @@ fn draw_network_lobby(f: &mut Frame, app: &NetworkApp) {
 		])
 		.split(f.area());
 
-	let header = Paragraph::new(format!("♠ ♥ Poker Lobby ♦ ♣  -  {}", app.username))
+	let header = Paragraph::new(format!("Transparent Poker  -  {}", app.username))
 		.style(Style::default().fg(Color::Green))
 		.block(Block::default().borders(Borders::ALL));
 	f.render_widget(header, chunks[0]);
@@ -547,9 +555,9 @@ fn draw_network_table(f: &mut Frame, app: &NetworkApp) {
 	f.render_widget(list, chunks[1]);
 
 	let help_text = if app.is_ready {
-		"Waiting for others...  A Add AI  L Leave  Q Quit"
+		"Waiting for others...  A Add AI  D Remove AI  L Leave  Q Quit"
 	} else {
-		"R Ready  A Add AI  L Leave  Q Quit"
+		"R Ready  A Add AI  D Remove AI  L Leave  Q Quit"
 	};
 	let help = Paragraph::new(help_text)
 		.style(Style::default().fg(Color::DarkGray))

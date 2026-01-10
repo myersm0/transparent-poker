@@ -61,12 +61,14 @@ struct AIPlayer {
 
 struct GameStartInfo {
 	config: TableConfig,
-	human_players: Vec<(ConnectionId, Seat, String, TcpStream)>,
+	human_players: Vec<(ConnectionId, Seat, String, TcpStream)>, // conn_id, seat, username, stream
 	ai_players: Vec<(Seat, String, String, String)>, // seat, id, name, strategy
+	player_bank_ids: Vec<String>, // bank ids for all players in seat order
 }
 
 struct TableRoom {
 	config: TableConfig,
+	order: usize,
 	players: HashMap<Seat, ConnectionId>,
 	ai_players: HashMap<Seat, AIPlayer>,
 	ready: HashMap<Seat, bool>,
@@ -75,9 +77,10 @@ struct TableRoom {
 }
 
 impl TableRoom {
-	fn new(config: TableConfig) -> Self {
+	fn new(config: TableConfig, order: usize) -> Self {
 		Self {
 			config,
+			order,
 			players: HashMap::new(),
 			ai_players: HashMap::new(),
 			ready: HashMap::new(),
@@ -192,8 +195,8 @@ impl GameServer {
 	pub fn new() -> Self {
 		let tables_config = load_tables().unwrap_or_default();
 		let mut tables = HashMap::new();
-		for config in tables_config {
-			tables.insert(config.id.clone(), TableRoom::new(config));
+		for (order, config) in tables_config.into_iter().enumerate() {
+			tables.insert(config.id.clone(), TableRoom::new(config, order));
 		}
 
 		let ai_roster = load_players_auto().unwrap_or_default();
@@ -332,9 +335,11 @@ fn process_message(
 
 		ClientMessage::ListTables => {
 			let tables_lock = tables.lock().unwrap();
-			let table_list: Vec<TableInfo> = tables_lock.values()
-				.map(|t| t.to_info())
+			let mut table_list: Vec<(usize, TableInfo)> = tables_lock.values()
+				.map(|t| (t.order, t.to_info()))
 				.collect();
+			table_list.sort_by_key(|(order, _)| *order);
+			let table_list: Vec<TableInfo> = table_list.into_iter().map(|(_, info)| info).collect();
 			let mut conns = connections.lock().unwrap();
 			if let Some(conn) = conns.get_mut(&conn_id) {
 				conn.send(&ServerMessage::LobbyState { tables: table_list });
@@ -512,14 +517,27 @@ fn process_message(
 						let game_info: Option<GameStartInfo> = {
 							if let Some(table) = tables_lock.get(&tid) {
 								let mut human_players = Vec::new();
+								let mut player_bank_ids: Vec<(Seat, String)> = Vec::new();
+
 								for (&seat, &cid) in &table.players {
 									if let Some(conn) = conns.get(&cid) {
 										let username = conn.username.clone().unwrap_or_else(|| "Unknown".to_string());
+										player_bank_ids.push((seat, username.to_lowercase()));
 										if let Ok(stream_clone) = conn.stream.try_clone() {
 											human_players.push((cid, seat, username, stream_clone));
 										}
 									}
 								}
+
+								for (&seat, ai) in &table.ai_players {
+									player_bank_ids.push((seat, ai.id.clone()));
+								}
+
+								// Sort by seat and extract just the ids
+								player_bank_ids.sort_by_key(|(seat, _)| seat.0);
+								let bank_ids: Vec<String> = player_bank_ids.into_iter()
+									.map(|(_, id)| id)
+									.collect();
 
 								let ai_players: Vec<(Seat, String, String, String)> = table.ai_players.iter()
 									.map(|(&seat, ai)| (seat, ai.id.clone(), ai.name.clone(), ai.strategy.clone()))
@@ -529,6 +547,7 @@ fn process_message(
 									config: table.config.clone(),
 									human_players,
 									ai_players,
+									player_bank_ids: bank_ids,
 								})
 							} else {
 								None
@@ -537,7 +556,7 @@ fn process_message(
 
 						// Start game outside of heavy lock usage
 						if let Some(info) = game_info {
-							let active_game = start_game(info);
+							let active_game = start_game(info, Arc::clone(bank));
 							if let Some(table) = tables_lock.get_mut(&tid) {
 								table.active_game = Some(active_game);
 							}
@@ -690,7 +709,7 @@ fn broadcast_to_table_except(
 	}
 }
 
-fn start_game(info: GameStartInfo) -> ActiveGame {
+fn start_game(info: GameStartInfo, bank: Arc<Mutex<Bank>>) -> ActiveGame {
 	let mut active_game = ActiveGame::new();
 
 	let runtime = tokio::runtime::Builder::new_multi_thread()
@@ -705,6 +724,13 @@ fn start_game(info: GameStartInfo) -> ActiveGame {
 	// Load strategies for AI players
 	let strategies = load_strategies_auto().unwrap_or_default();
 	let big_blind = info.config.big_blind.unwrap_or(2.0);
+
+	// Capture config for game end processing
+	let game_format = info.config.format;
+	let table_id = info.config.id.clone();
+	let player_bank_ids = info.player_bank_ids.clone();
+	let payouts_config = info.config.payouts.clone();
+	let buy_in = info.config.buy_in;
 
 	// Capture delays from config
 	let action_delay_ms = info.config.action_delay_ms;
@@ -781,6 +807,42 @@ fn start_game(info: GameStartInfo) -> ActiveGame {
 							let _ = s.write_all(&action_data);
 						}
 					}
+				}
+			}
+
+			// Handle game end - process cashout/prizes
+			if let GameEvent::GameEnded { final_standings, .. } = &event {
+				use crate::table::GameFormat;
+
+				let mut bank_lock = bank.lock().unwrap();
+
+				match game_format {
+					GameFormat::Cash => {
+						// Cash game: return remaining stacks to players
+						for standing in final_standings {
+							if let Some(bank_id) = player_bank_ids.get(standing.seat.0) {
+								bank_lock.cashout(bank_id, standing.final_stack, &table_id);
+							}
+						}
+					}
+					GameFormat::SitNGo => {
+						// Tournament: distribute prizes based on finish position
+						if let (Some(payout_pcts), Some(bi)) = (&payouts_config, buy_in) {
+							let num_players = final_standings.len();
+							let payouts = crate::table::calculate_payouts(bi, num_players, payout_pcts);
+							for (i, payout) in payouts.iter().enumerate() {
+								if let Some(standing) = final_standings.iter().find(|s| s.finish_position == (i + 1) as u8) {
+									if let Some(bank_id) = player_bank_ids.get(standing.seat.0) {
+										bank_lock.award_prize(bank_id, *payout, i + 1);
+									}
+								}
+							}
+						}
+					}
+				}
+
+				if let Err(e) = bank_lock.save() {
+					eprintln!("Failed to save bank after game end: {}", e);
 				}
 			}
 
