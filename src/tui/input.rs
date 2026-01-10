@@ -4,7 +4,7 @@ use crate::players::PlayerResponse;
 
 #[derive(Debug, Clone)]
 pub enum InputState {
-	Watching { quit_pending: bool },
+	Watching,
 	AwaitingAction { valid: ValidActions },
 	EnteringRaise {
 		valid: ValidActions,
@@ -21,13 +21,12 @@ pub enum InputEffect {
 	SetPrompt(String),
 	ClearPrompt,
 	Respond(PlayerResponse),
-	RequestQuitConfirmation,
 	Quit,
 }
 
 impl Default for InputState {
 	fn default() -> Self {
-		Self::Watching { quit_pending: false }
+		Self::Watching
 	}
 }
 
@@ -38,10 +37,6 @@ impl InputState {
 
 	pub fn is_game_over(&self) -> bool {
 		matches!(self, Self::GameOver)
-	}
-
-	pub fn is_quit_pending(&self) -> bool {
-		matches!(self, Self::Watching { quit_pending: true })
 	}
 
 	pub fn enter_action_mode(valid: ValidActions) -> (Self, InputEffect) {
@@ -57,16 +52,9 @@ impl InputState {
 		)
 	}
 
-	pub fn clear_quit_pending(self) -> Self {
-		match self {
-			Self::Watching { .. } => Self::Watching { quit_pending: false },
-			other => other,
-		}
-	}
-
 	pub fn handle_key(self, key: KeyCode) -> (Self, InputEffect) {
 		match self {
-			Self::Watching { quit_pending } => handle_watching(quit_pending, key),
+			Self::Watching => handle_watching(key),
 			Self::AwaitingAction { valid } => handle_awaiting_action(valid, key),
 			Self::EnteringRaise { valid, amount, min, max } => {
 				handle_entering_raise(valid, amount, min, max, key)
@@ -76,19 +64,10 @@ impl InputState {
 	}
 }
 
-fn handle_watching(quit_pending: bool, key: KeyCode) -> (InputState, InputEffect) {
+fn handle_watching(key: KeyCode) -> (InputState, InputEffect) {
 	match key {
-		KeyCode::Char('q') | KeyCode::Esc => {
-			if quit_pending {
-				(InputState::Watching { quit_pending: true }, InputEffect::Quit)
-			} else {
-				(
-					InputState::Watching { quit_pending: true },
-					InputEffect::RequestQuitConfirmation,
-				)
-			}
-		}
-		_ => (InputState::Watching { quit_pending: false }, InputEffect::None),
+		KeyCode::Char('q') | KeyCode::Esc => (InputState::Watching, InputEffect::Quit),
+		_ => (InputState::Watching, InputEffect::None),
 	}
 }
 
@@ -104,7 +83,7 @@ fn handle_awaiting_action(valid: ValidActions, key: KeyCode) -> (InputState, Inp
 		KeyCode::Char('f') => {
 			if valid.can_fold {
 				(
-					InputState::Watching { quit_pending: false },
+					InputState::Watching,
 					InputEffect::Respond(PlayerResponse::Action(PlayerAction::Fold)),
 				)
 			} else {
@@ -116,7 +95,7 @@ fn handle_awaiting_action(valid: ValidActions, key: KeyCode) -> (InputState, Inp
 		KeyCode::Enter => {
 			if valid.can_check {
 				(
-					InputState::Watching { quit_pending: false },
+					InputState::Watching,
 					InputEffect::Respond(PlayerResponse::Action(PlayerAction::Check)),
 				)
 			} else {
@@ -127,12 +106,12 @@ fn handle_awaiting_action(valid: ValidActions, key: KeyCode) -> (InputState, Inp
 		KeyCode::Char('c') => {
 			if let Some(amount) = valid.call_amount {
 				(
-					InputState::Watching { quit_pending: false },
+					InputState::Watching,
 					InputEffect::Respond(PlayerResponse::Action(PlayerAction::Call { amount })),
 				)
 			} else if valid.can_check {
 				(
-					InputState::Watching { quit_pending: false },
+					InputState::Watching,
 					InputEffect::Respond(PlayerResponse::Action(PlayerAction::Check)),
 				)
 			} else {
@@ -150,7 +129,7 @@ fn handle_awaiting_action(valid: ValidActions, key: KeyCode) -> (InputState, Inp
 						}
 					};
 					(
-						InputState::Watching { quit_pending: false },
+						InputState::Watching,
 						InputEffect::Respond(PlayerResponse::Action(PlayerAction::Bet {
 							amount: bet_amount,
 						})),
@@ -182,7 +161,7 @@ fn handle_awaiting_action(valid: ValidActions, key: KeyCode) -> (InputState, Inp
 		KeyCode::Char('a') => {
 			if valid.can_all_in {
 				(
-					InputState::Watching { quit_pending: false },
+					InputState::Watching,
 					InputEffect::Respond(PlayerResponse::Action(PlayerAction::AllIn {
 						amount: valid.all_in_amount,
 					})),
@@ -235,7 +214,7 @@ fn handle_entering_raise(
 		}
 
 		KeyCode::Enter => (
-			InputState::Watching { quit_pending: false },
+			InputState::Watching,
 			InputEffect::Respond(PlayerResponse::Action(PlayerAction::Raise { amount })),
 		),
 
@@ -297,29 +276,20 @@ mod tests {
 	}
 
 	#[test]
-	fn watching_first_q_sets_quit_pending() {
-		let state = InputState::Watching { quit_pending: false };
+	fn watching_q_quits() {
+		let state = InputState::Watching;
 		let (new_state, effect) = state.handle_key(KeyCode::Char('q'));
 
-		assert!(matches!(new_state, InputState::Watching { quit_pending: true }));
-		assert!(matches!(effect, InputEffect::RequestQuitConfirmation));
-	}
-
-	#[test]
-	fn watching_second_q_quits() {
-		let state = InputState::Watching { quit_pending: true };
-		let (new_state, effect) = state.handle_key(KeyCode::Char('q'));
-
-		assert!(matches!(new_state, InputState::Watching { quit_pending: true }));
+		assert!(matches!(new_state, InputState::Watching));
 		assert!(matches!(effect, InputEffect::Quit));
 	}
 
 	#[test]
-	fn watching_other_key_clears_quit_pending() {
-		let state = InputState::Watching { quit_pending: true };
+	fn watching_other_key_does_nothing() {
+		let state = InputState::Watching;
 		let (new_state, effect) = state.handle_key(KeyCode::Char('x'));
 
-		assert!(matches!(new_state, InputState::Watching { quit_pending: false }));
+		assert!(matches!(new_state, InputState::Watching));
 		assert!(matches!(effect, InputEffect::None));
 	}
 
@@ -329,7 +299,7 @@ mod tests {
 		let state = InputState::AwaitingAction { valid };
 		let (new_state, effect) = state.handle_key(KeyCode::Char('f'));
 
-		assert!(matches!(new_state, InputState::Watching { .. }));
+		assert!(matches!(new_state, InputState::Watching));
 		assert!(matches!(
 			effect,
 			InputEffect::Respond(PlayerResponse::Action(PlayerAction::Fold))
@@ -352,7 +322,7 @@ mod tests {
 		let state = InputState::AwaitingAction { valid };
 		let (new_state, effect) = state.handle_key(KeyCode::Enter);
 
-		assert!(matches!(new_state, InputState::Watching { .. }));
+		assert!(matches!(new_state, InputState::Watching));
 		assert!(matches!(
 			effect,
 			InputEffect::Respond(PlayerResponse::Action(PlayerAction::Check))
@@ -399,7 +369,7 @@ mod tests {
 		};
 		let (new_state, effect) = state.handle_key(KeyCode::Enter);
 
-		assert!(matches!(new_state, InputState::Watching { .. }));
+		assert!(matches!(new_state, InputState::Watching));
 		if let InputEffect::Respond(PlayerResponse::Action(PlayerAction::Raise { amount })) = effect
 		{
 			assert_eq!(amount, 50.0);

@@ -1,5 +1,6 @@
 use std::io::{self, stdout};
 use std::sync::{mpsc, Arc};
+use std::sync::atomic::{AtomicBool, Ordering};
 use std::time::{Duration, Instant};
 
 use clap::{Parser, Subcommand};
@@ -225,10 +226,17 @@ struct App {
 	table_config: TableConfig,
 	info_lines: Vec<String>,
 	theme: Theme,
+	quit_signal: Arc<AtomicBool>,
 }
 
 impl App {
-	fn new(human_seat: Seat, table_config: TableConfig, effective_seed: Option<u64>, theme: Theme) -> Self {
+	fn new(
+		human_seat: Seat,
+		table_config: TableConfig,
+		effective_seed: Option<u64>,
+		theme: Theme,
+		quit_signal: Arc<AtomicBool>,
+	) -> Self {
 		let table_info = format!("{} {}", table_config.betting, table_config.format);
 		let table_view = TableView::new().with_table_info(table_config.name.clone(), table_info);
 		let info_lines = build_info_lines(&table_config, effective_seed);
@@ -244,6 +252,7 @@ impl App {
 			table_config,
 			info_lines,
 			theme,
+			quit_signal,
 		}
 	}
 
@@ -325,14 +334,10 @@ impl App {
 				false
 			}
 
-			InputEffect::RequestQuitConfirmation => {
-				self.status_message = Some(
-					"Press 'q' again to quit, any other key to cancel".into(),
-				);
-				false
+			InputEffect::Quit => {
+				self.quit_signal.store(true, Ordering::SeqCst);
+				true
 			}
-
-			InputEffect::Quit => true,
 		}
 	}
 
@@ -645,7 +650,13 @@ fn run_game(
 		runner.run();
 	});
 
-	let mut app = App::new(human_seat, table.clone(), seed, theme);
+	let mut app = App::new(
+		human_seat,
+		table.clone(),
+		seed,
+		theme,
+		Arc::clone(&game_handle.quit_signal),
+	);
 	let delays = DelayConfig::from_table(&table);
 	log::event("game started");
 
@@ -681,8 +692,6 @@ fn run_game(
 
 		match game_handle.event_rx.recv_timeout(Duration::from_millis(50)) {
 			Ok(event) => {
-				app.input_state = app.input_state.clone().clear_quit_pending();
-
 				let is_human_turn = matches!(
 					&event,
 					GameEvent::ActionRequest { seat, .. } if seat.0 == app.human_seat.0
@@ -704,12 +713,9 @@ fn run_game(
 					}
 				} else if delay_ms > 0 {
 					if interruptible_sleep(Duration::from_millis(delay_ms))? {
-						if app.input_state.is_quit_pending() {
-							log::event("user confirmed quit during delay");
-							break;
-						} else {
-							app.input_state = InputState::Watching { quit_pending: true };
-						}
+						log::event("user quit during delay");
+						app.quit_signal.store(true, Ordering::SeqCst);
+						break;
 					}
 				}
 			}
@@ -819,23 +825,12 @@ fn draw_ui(frame: &mut Frame, app: &App) {
 			Style::default().fg(app.theme.status_game_over()).add_modifier(Modifier::BOLD),
 			Style::default().fg(app.theme.status_game_over_border()),
 		),
-		InputState::Watching { quit_pending } => {
-			if *quit_pending {
-				(
-					"Press 'q' again to quit, any other key to cancel".to_string(),
-					" Quit? ",
-					Style::default().fg(app.theme.status_quit()).add_modifier(Modifier::BOLD),
-					Style::default().fg(app.theme.status_quit_border()),
-				)
-			} else {
-				(
-					"[q] quit".to_string(),
-					" Status ",
-					Style::default().fg(app.theme.status_watching()),
-					Style::default().fg(app.theme.status_watching_border()),
-				)
-			}
-		}
+		InputState::Watching => (
+			"[q] quit".to_string(),
+			" Status ",
+			Style::default().fg(app.theme.status_watching()),
+			Style::default().fg(app.theme.status_watching_border()),
+		),
 	};
 
 	let status = Paragraph::new(status_text)

@@ -1,4 +1,5 @@
 use std::sync::{mpsc, Arc, Mutex};
+use std::sync::atomic::{AtomicBool, Ordering};
 use rand::{Rng, SeedableRng};
 use rand::rngs::StdRng;
 use rs_poker::arena::{Agent, GameState, HoldemSimulationBuilder};
@@ -23,6 +24,7 @@ pub struct GameRunner {
 	blind_clock: Option<BlindClock>,
 	rng: StdRng,
 	runtime_handle: Handle,
+	quit_signal: Arc<AtomicBool>,
 }
 
 pub struct RunnerConfig {
@@ -60,6 +62,7 @@ impl Default for RunnerConfig {
 pub struct GameHandle {
 	pub event_rx: mpsc::Receiver<GameEvent>,
 	pub game_id: GameId,
+	pub quit_signal: Arc<AtomicBool>,
 }
 
 impl GameRunner {
@@ -73,6 +76,7 @@ impl GameRunner {
 		};
 
 		let game_id = GameId(rng.random());
+		let quit_signal = Arc::new(AtomicBool::new(false));
 
 		let runner = Self {
 			game_id,
@@ -83,9 +87,14 @@ impl GameRunner {
 			blind_clock,
 			rng,
 			runtime_handle,
+			quit_signal: Arc::clone(&quit_signal),
 		};
 
-		let handle = GameHandle { event_rx, game_id };
+		let handle = GameHandle {
+			event_rx,
+			game_id,
+			quit_signal,
+		};
 
 		(runner, handle)
 	}
@@ -166,6 +175,11 @@ impl GameRunner {
 		loop {
 			hand_num += 1;
 			logging::set_hand_num(hand_num);
+
+			if self.quit_signal.load(Ordering::SeqCst) {
+				logging::engine::game_ended("User quit");
+				break;
+			}
 
 			let active_count = stacks.iter().filter(|&&s| s > 0.0).count();
 			if active_count <= 1 {
@@ -315,8 +329,14 @@ impl GameRunner {
 			s.finish_position = (i + 1) as u8;
 		}
 
+		let reason = if self.quit_signal.load(Ordering::SeqCst) {
+			GameEndReason::HostTerminated
+		} else {
+			GameEndReason::Winner
+		};
+
 		self.emit(GameEvent::GameEnded {
-			reason: GameEndReason::Winner,
+			reason,
 			final_standings: standings,
 		});
 	}
