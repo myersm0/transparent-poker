@@ -448,6 +448,60 @@ fn process_message(
 					broadcast_to_table(&tid, &msg, &mut tables_lock, &mut conns);
 
 					if all_ready {
+						let mut bank_lock = bank.lock().unwrap();
+
+						// Process buy-ins for all players
+						let buy_in_result: Result<(), String> = (|| {
+							let table = tables_lock.get(&tid).ok_or("Table not found")?;
+							let buy_in = table.config.effective_buy_in();
+
+							// Collect all player ids (humans use username lowercase, AI uses id)
+							let mut player_ids: Vec<String> = Vec::new();
+
+							for &cid in table.players.values() {
+								if let Some(conn) = conns.get(&cid) {
+									let username = conn.username.clone().unwrap_or_else(|| "Unknown".to_string());
+									player_ids.push(username.to_lowercase());
+								}
+							}
+
+							for ai in table.ai_players.values() {
+								player_ids.push(ai.id.clone());
+							}
+
+							// Try buy-in for each player
+							for id in &player_ids {
+								bank_lock.buyin(id, buy_in, &table.config.id)
+									.map_err(|e| format!("{}", e))?;
+							}
+
+						Ok(())
+						})();
+
+						if let Err(msg) = buy_in_result {
+							// Reset table status and player ready states
+							if let Some(table) = tables_lock.get_mut(&tid) {
+								table.status = TableStatus::Waiting;
+								for ready in table.ready.values_mut() {
+									*ready = false;
+								}
+								// Re-mark AI as ready
+								for &seat in table.ai_players.keys() {
+									table.ready.insert(seat, true);
+								}
+							}
+
+							let error_msg = ServerMessage::Error { message: msg };
+							broadcast_to_table(&tid, &error_msg, &mut tables_lock, &mut conns);
+							return;
+						}
+
+						// Save bank after successful buy-ins
+						if let Err(e) = bank_lock.save() {
+							eprintln!("Failed to save bank: {}", e);
+						}
+						drop(bank_lock);
+
 						if let Some(table) = tables_lock.get_mut(&tid) {
 							table.status = TableStatus::InProgress;
 						}
@@ -496,7 +550,6 @@ fn process_message(
 		ClientMessage::AddAI { strategy: _ } => {
 			let mut conns = connections.lock().unwrap();
 			let mut tables_lock = tables.lock().unwrap();
-			let bank_lock = bank.lock().unwrap();
 
 			let table_id = conns.get(&conn_id).and_then(|c| c.current_table.clone());
 			if let Some(tid) = table_id {
@@ -511,30 +564,23 @@ fn process_message(
 					}
 
 					if let Some(seat) = table.find_empty_seat() {
-						// Find AI players already at this table
 						let used_ids: Vec<String> = table.ai_players.values()
 							.map(|ai| ai.id.clone())
 							.collect();
 
-						// Find available AI from roster
-						let available_ai = ai_roster.iter()
+						let mut available: Vec<_> = ai_roster.iter()
 							.filter(|p| !used_ids.contains(&p.id))
-							.filter(|p| bank_lock.profile_exists(&p.id))
-							.next();
+							.collect();
 
-						if let Some(ai_config) = available_ai {
-							let buy_in = table.config.effective_starting_stack();
-							let bankroll = bank_lock.get_bankroll(&ai_config.id);
+						use rand::seq::SliceRandom;
+						available.shuffle(&mut rand::rng());
 
-							if bankroll < buy_in {
-								if let Some(conn) = conns.get_mut(&conn_id) {
-									conn.send(&ServerMessage::Error {
-										message: format!("{} has insufficient bankroll", ai_config.display_name()),
-									});
-								}
-								return;
-							}
+						let selected = available.iter()
+							.find(|p| rand::random::<f32>() < p.join_probability)
+							.copied()
+							.or_else(|| available.first().copied());
 
+						if let Some(ai_config) = selected {
 							let name = ai_config.display_name();
 							table.add_ai(seat, ai_config.id.clone(), name.clone(), ai_config.strategy.clone());
 

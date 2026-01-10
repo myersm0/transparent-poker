@@ -20,8 +20,8 @@ pub enum SortMode {
 	#[default]
 	Manual,
 	Alpha,
-	Betting,
 	Format,
+	Betting,
 	StakesAsc,
 	StakesDesc,
 }
@@ -53,10 +53,10 @@ impl SortMode {
 		match self {
 			SortMode::Manual => "Manual",
 			SortMode::Alpha => "A-Z",
-			SortMode::Format => "Format (cash game or tournament)",
-			SortMode::Betting => "Betting structure (no limit, pot limit, fixed)",
-			SortMode::StakesAsc => "Minimum buy-in (ascending)",
-			SortMode::StakesDesc => "Minimum buy-in (descending)",
+			SortMode::Format => "Format",
+			SortMode::Betting => "Betting",
+			SortMode::StakesAsc => "Stakes ↑",
+			SortMode::StakesDesc => "Stakes ↓",
 		}
 	}
 }
@@ -163,16 +163,16 @@ impl Menu {
 			}
 			SortMode::StakesAsc => {
 				self.sorted_indices.sort_by(|&a, &b| {
-					let buy_in_a = self.tables[a].effective_buy_in();
-					let buy_in_b = self.tables[b].effective_buy_in();
-					buy_in_a.partial_cmp(&buy_in_b).unwrap_or(std::cmp::Ordering::Equal)
+					let bb_a = self.tables[a].current_blinds().1;
+					let bb_b = self.tables[b].current_blinds().1;
+					bb_a.partial_cmp(&bb_b).unwrap_or(std::cmp::Ordering::Equal)
 				});
 			}
 			SortMode::StakesDesc => {
 				self.sorted_indices.sort_by(|&a, &b| {
-					let buy_in_a = self.tables[a].effective_buy_in();
-					let buy_in_b = self.tables[b].effective_buy_in();
-					buy_in_b.partial_cmp(&buy_in_a).unwrap_or(std::cmp::Ordering::Equal)
+					let bb_a = self.tables[a].current_blinds().1;
+					let bb_b = self.tables[b].current_blinds().1;
+					bb_b.partial_cmp(&bb_a).unwrap_or(std::cmp::Ordering::Equal)
 				});
 			}
 		}
@@ -263,8 +263,15 @@ impl Menu {
 										self.lobby_cursor += 1;
 									}
 								}
-								KeyCode::Char(' ') => {
-									self.add_next_ai();
+								KeyCode::Enter => {
+									if self.lobby_cursor == self.lobby_players.len() {
+										self.add_next_ai();
+									} else if self.can_start() {
+										return Ok(MenuResult::StartGame {
+											table: self.selected_table.clone().expect("table selected in lobby state"),
+											players: self.lobby_players.clone(),
+										});
+									}
 								}
 								KeyCode::Char('a') => {
 									self.add_next_ai();
@@ -272,7 +279,7 @@ impl Menu {
 								KeyCode::Char('d') | KeyCode::Delete | KeyCode::Backspace => {
 									self.remove_player_at_cursor();
 								}
-								KeyCode::Enter => {
+								KeyCode::Char('s') => {
 									if self.can_start() {
 										return Ok(MenuResult::StartGame {
 											table: self.selected_table.clone().expect("table selected in lobby state"),
@@ -390,7 +397,7 @@ impl Menu {
 
 		let host_bankroll = self.bank.get_bankroll(&self.host_id);
 		let header = Paragraph::new(format!(
-			"  Transparent Poker                            Bankroll: ${:.0}",
+			"  POKER TUI                                    Bankroll: ${:.0}",
 			host_bankroll
 		))
 		.style(Style::default().fg(self.theme.menu_title()).add_modifier(Modifier::BOLD))
@@ -404,19 +411,19 @@ impl Menu {
 				let t = &self.tables[idx];
 				let format_label = match t.format {
 					GameFormat::Cash => "Cash",
-					GameFormat::SitNGo => "Tournament",
+					GameFormat::SitNGo => "SNG",
 				};
 				let line = Line::from(vec![
 					Span::styled(
-						format!("{:<24}", t.name),
-						Style::default().fg(self.theme.menu_text()),
-					),
-					Span::styled(
-						format!("{:<12}", format_label),
+						format!("{:<6}", format_label),
 						Style::default().fg(self.theme.menu_unselected()),
 					),
 					Span::styled(
-						format!("{:<21}", t.summary()),
+						format!("{:<22}", t.name),
+						Style::default().fg(self.theme.menu_text()),
+					),
+					Span::styled(
+						format!("{:<18}", t.summary()),
 						Style::default().fg(self.theme.menu_highlight()),
 					),
 					Span::styled(t.player_range(), Style::default().fg(self.theme.menu_unselected())),
@@ -493,7 +500,7 @@ impl Menu {
 
 		let can_start = self.can_start();
 		let help_text = if can_start {
-			"  [Enter] Start game  [a] Add AI player  [d] Remove player  [Esc] Back  [q] Quit"
+			"  [s] Start Game  [a] Add AI  [d] Remove  [Esc] Back  [q] Quit"
 		} else {
 			format!(
 				"  Need {} more players  [a] Add AI  [Esc] Back  [q] Quit",
