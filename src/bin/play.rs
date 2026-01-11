@@ -726,22 +726,34 @@ fn run_app(
 
 			let standings = run_game(terminal, table.clone(), players, backend.bank_mut(), &host_id, theme, theme_name, cli_seed)?;
 
+			// Check if this was an early termination (finish_position == 0)
+			let early_termination = standings.first().map(|s| s.finish_position == 0).unwrap_or(false);
+
 			match table.format {
 				GameFormat::Cash => {
+					// Cash games: always credit back current stacks
 					for standing in &standings {
 						let bank_id = name_to_id.get(&standing.name).unwrap_or(&standing.name);
 						backend.bank_mut().cashout(bank_id, standing.final_stack, &table.id);
 					}
+					if early_termination {
+						log::event("cash game terminated early, stacks refunded");
+					}
 				}
 				GameFormat::SitNGo => {
-					let buy_in = table.buy_in.unwrap_or(0.0);
-					let num_players = standings.len();
-					if let Some(payout_pcts) = &table.payouts {
-						let payouts = transparent_poker::table::calculate_payouts(buy_in, num_players, payout_pcts);
-						for (i, payout) in payouts.iter().enumerate() {
-							if let Some(standing) = standings.iter().find(|s| s.finish_position == (i + 1) as u8) {
-								let bank_id = name_to_id.get(&standing.name).unwrap_or(&standing.name);
-								backend.bank_mut().award_prize(bank_id, *payout, i + 1);
+					// Tournaments: only pay out if game completed normally
+					if early_termination {
+						log::event("tournament terminated early, no refunds");
+					} else {
+						let buy_in = table.buy_in.unwrap_or(0.0);
+						let num_players = standings.len();
+						if let Some(payout_pcts) = &table.payouts {
+							let payouts = transparent_poker::table::calculate_payouts(buy_in, num_players, payout_pcts);
+							for (i, payout) in payouts.iter().enumerate() {
+								if let Some(standing) = standings.iter().find(|s| s.finish_position == (i + 1) as u8) {
+									let bank_id = name_to_id.get(&standing.name).unwrap_or(&standing.name);
+									backend.bank_mut().award_prize(bank_id, *payout, i + 1);
+								}
 							}
 						}
 					}
@@ -768,6 +780,9 @@ fn run_game(
 	let (small_blind, big_blind) = table.current_blinds();
 	let starting_stack = table.effective_starting_stack();
 	let buy_in = table.effective_buy_in();
+
+	// Save player info for early termination fallback
+	let player_names: Vec<String> = lobby_players.iter().map(|p| p.name.clone()).collect();
 
 	for player in &lobby_players {
 		bank.buyin(&player.id, buy_in, &table.id)
@@ -949,7 +964,33 @@ fn run_game(
 		}
 	}
 
-	Ok(app.final_standings)
+	// If game ended normally, use final_standings
+	// If terminated early, build standings from current table view state
+	// If table view is empty (quit before HandStarted), use original player list with buy-in
+	if !app.final_standings.is_empty() {
+		Ok(app.final_standings)
+	} else if !app.table_view.players.is_empty() {
+		let early_standings: Vec<Standing> = app.table_view.players.iter()
+			.map(|p| Standing {
+				seat: Seat(p.seat),
+				name: p.name.clone(),
+				final_stack: p.stack,
+				finish_position: 0,
+			})
+			.collect();
+		Ok(early_standings)
+	} else {
+		// Extreme early quit - refund buy-ins
+		let fallback_standings: Vec<Standing> = player_names.iter().enumerate()
+			.map(|(i, name)| Standing {
+				seat: Seat(i),
+				name: name.clone(),
+				final_stack: buy_in,
+				finish_position: 0,
+			})
+			.collect();
+		Ok(fallback_standings)
+	}
 }
 
 fn get_event_delay(event: &GameEvent, human_seat: Seat, delays: DelayConfig) -> u64 {
