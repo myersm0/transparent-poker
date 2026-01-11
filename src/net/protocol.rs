@@ -165,6 +165,7 @@ mod tests {
 		let msg = ServerMessage::Welcome {
 			username: "Bob".to_string(),
 			message: "Hello".to_string(),
+			bankroll: 1000.0,
 		};
 		let encoded = encode_message(&msg);
 		let json = std::str::from_utf8(&encoded[4..]).unwrap();

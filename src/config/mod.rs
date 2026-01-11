@@ -201,7 +201,7 @@ pub struct GamesDefaults {
 
 fn default_table_size() -> usize { 10 }
 fn default_model() -> String { "claude-haiku-4-5".to_string() }
-fn default_bankroll() -> f32 { 10000.0 }
+fn default_bankroll() -> f32 { 1000.0 }
 fn default_action_delay() -> u64 { 500 }
 
 #[derive(Debug, Clone, Deserialize)]
