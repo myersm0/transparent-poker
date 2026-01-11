@@ -394,14 +394,14 @@ impl<B: LobbyBackend> Menu<B> {
 			.split(area);
 
 		let host_bankroll = self.backend.get_bankroll(&self.host_id);
-		let header_text = if host_bankroll > 0.0 {
-			format!(
-				"  Transparent Poker                            Bankroll: ${:.0}",
-				host_bankroll
-			)
+
+		let player_info = if host_bankroll > 0.0 {
+			format!("Player: {}  Bankroll: ${:.0}", self.host_id, host_bankroll)
 		} else {
-			"  Transparent Poker".to_string()
+			self.host_id.clone()
 		};
+		let header_text = format!("{:<30}{:>42}", "  Transparent Poker", player_info);
+
 		let header = Paragraph::new(header_text)
 			.style(Style::default().fg(self.theme.menu_title()).add_modifier(Modifier::BOLD))
 			.block(Block::default().borders(Borders::ALL).border_style(Style::default().fg(self.theme.menu_border())));
@@ -426,15 +426,15 @@ impl<B: LobbyBackend> Menu<B> {
 				Style::default().fg(self.theme.menu_title()).add_modifier(Modifier::BOLD),
 			),
 			Span::styled(
-				format!("{:<10}", "Stakes"),
+				format!("{:>7}", "Stakes"),
 				Style::default().fg(self.theme.menu_title()).add_modifier(Modifier::BOLD),
 			),
 			Span::styled(
-				format!("{:<8}", "Buy-in"),
+				format!("{:>7}", "Buy-in"),
 				Style::default().fg(self.theme.menu_title()).add_modifier(Modifier::BOLD),
 			),
 			Span::styled(
-				"Players",
+				" Players",
 				Style::default().fg(self.theme.menu_title()).add_modifier(Modifier::BOLD),
 			),
 		]);
@@ -463,7 +463,7 @@ impl<B: LobbyBackend> Menu<B> {
 				};
 				let line = Line::from(vec![
 					Span::styled(
-						format!("{:<24}", truncate_str(&t.name, 24)),
+						format!("{:<24}", truncate_str(&t.name, 19)),
 						Style::default().fg(self.theme.menu_text()),
 					),
 					Span::styled(
@@ -479,11 +479,11 @@ impl<B: LobbyBackend> Menu<B> {
 						Style::default().fg(self.theme.menu_highlight()),
 					),
 					Span::styled(
-						format!("{:>10}", t.blinds),
+						format!("{:>7}", t.blinds),
 						Style::default().fg(self.theme.menu_highlight()),
 					),
 					Span::styled(
-						format!("{:>8}", t.buy_in),
+						format!("{:>7}", t.buy_in),
 						Style::default().fg(self.theme.bet()),
 					),
 					Span::styled(

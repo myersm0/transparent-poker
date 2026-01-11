@@ -421,9 +421,14 @@ fn process_message(
 			let mut conns = connections.lock().unwrap();
 			if let Some(conn) = conns.get_mut(&conn_id) {
 				conn.username = Some(username.clone());
+				let bankroll = {
+					let bank_lock = bank.lock().unwrap();
+					bank_lock.get_bankroll(&username.to_lowercase())
+				};
 				conn.send(&ServerMessage::Welcome {
 					username: username.clone(),
 					message: "Welcome to the poker server!".to_string(),
+					bankroll,
 				});
 			}
 		}

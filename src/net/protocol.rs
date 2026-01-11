@@ -34,6 +34,7 @@ pub enum ServerMessage {
 	Welcome {
 		username: String,
 		message: String,
+		bankroll: f32,
 	},
 	Error {
 		message: String,

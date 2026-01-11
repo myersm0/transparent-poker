@@ -7,7 +7,7 @@ use clap::{Parser, Subcommand};
 use crossterm::{
 	event::{self, Event, KeyCode, KeyEventKind, KeyModifiers},
 	execute,
-	terminal::{disable_raw_mode, enable_raw_mode, EnterAlternateScreen, LeaveAlternateScreen},
+	terminal::{disable_raw_mode, enable_raw_mode, EnterAlternateScreen, LeaveAlternateScreen, SetTitle},
 };
 use rand::seq::SliceRandom;
 use ratatui::{
@@ -34,7 +34,7 @@ use transparent_poker::view::TableView;
 
 #[derive(Parser)]
 #[command(name = "poker")]
-#[command(about = "Transparent Poker")]
+#[command(about = "Transparent poker - play Texas Hold'em against AI opponents")]
 #[command(version)]
 struct Cli {
 	#[command(subcommand)]
@@ -570,7 +570,7 @@ fn cmd_play_network(player: Option<String>, theme: Option<String>, addr: &str) -
 
 	enable_raw_mode()?;
 	let mut stdout = stdout();
-	execute!(stdout, EnterAlternateScreen)?;
+	execute!(stdout, EnterAlternateScreen, SetTitle("transparent-poker"))?;
 	let backend = CrosstermBackend::new(stdout);
 	let mut terminal = Terminal::new(backend)?;
 
@@ -683,7 +683,7 @@ fn cmd_play_local(player: Option<String>, theme: Option<String>, seed: Option<u6
 
 	enable_raw_mode()?;
 	let mut stdout = stdout();
-	execute!(stdout, EnterAlternateScreen)?;
+	execute!(stdout, EnterAlternateScreen, SetTitle("transparent-poker"))?;
 	let backend = CrosstermBackend::new(stdout);
 	let mut terminal = Terminal::new(backend)?;
 

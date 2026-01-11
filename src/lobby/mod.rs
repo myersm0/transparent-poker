@@ -392,6 +392,8 @@ pub struct NetworkBackend {
 	pending_events: Vec<LobbyEvent>,
 	my_seat: Option<Seat>,
 	game_started: bool,
+	username: Option<String>,
+	bankroll: f32,
 }
 
 impl NetworkBackend {
@@ -401,7 +403,13 @@ impl NetworkBackend {
 			pending_events: Vec::new(),
 			my_seat: None,
 			game_started: false,
+			username: None,
+			bankroll: 0.0,
 		}
+	}
+
+	pub fn username(&self) -> Option<&str> {
+		self.username.as_deref()
 	}
 
 	pub fn into_client(self) -> GameClient {
@@ -488,6 +496,11 @@ impl NetworkBackend {
 					self.emit(LobbyEvent::Error(message));
 				}
 
+				ServerMessage::Welcome { username, bankroll, .. } => {
+					self.username = Some(username);
+					self.bankroll = bankroll;
+				}
+
 				_ => {}
 			}
 		}
@@ -532,7 +545,7 @@ impl LobbyBackend for NetworkBackend {
 	}
 
 	fn get_bankroll(&self, _player_id: &str) -> f32 {
-		0.0
+		self.bankroll
 	}
 }
 
