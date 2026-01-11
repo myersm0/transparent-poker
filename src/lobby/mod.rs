@@ -479,6 +479,11 @@ impl NetworkBackend {
 					return;
 				}
 
+				ServerMessage::TableLeft => {
+					self.my_seat = None;
+					self.emit(LobbyEvent::LeftTable);
+				}
+
 				ServerMessage::Error { message } => {
 					self.emit(LobbyEvent::Error(message));
 				}

@@ -449,6 +449,10 @@ fn process_message(
 						username,
 					};
 					broadcast_to_table_except(&table_id, conn_id, &join_msg, &mut tables_lock, &mut conns);
+
+					// Broadcast updated lobby state to all clients in table select
+					let table_list = build_table_list(&tables_lock);
+					broadcast_lobby_state(&table_list, &mut conns);
 				} else {
 					if let Some(conn) = conns.get_mut(&conn_id) {
 						conn.send(&ServerMessage::Error {
@@ -477,8 +481,18 @@ fn process_message(
 							.and_then(|c| c.username.clone())
 							.unwrap_or_else(|| "Unknown".to_string());
 
+						// Notify the leaving player first
+						if let Some(conn) = conns.get_mut(&conn_id) {
+							conn.send(&ServerMessage::TableLeft);
+						}
+
+						// Then notify others at the table
 						let msg = ServerMessage::PlayerLeftTable { seat, username };
 						broadcast_to_table(&tid, &msg, &mut tables_lock, &mut conns);
+
+						// Broadcast updated lobby state to all connected clients
+						let table_list = build_table_list(&tables_lock);
+						broadcast_lobby_state(&table_list, &mut conns);
 					}
 				}
 				if let Some(conn) = conns.get_mut(&conn_id) {
@@ -666,6 +680,10 @@ fn process_message(
 
 							let msg = ServerMessage::AIAdded { seat, name };
 							broadcast_to_table(&tid, &msg, &mut tables_lock, &mut conns);
+
+							// Broadcast updated lobby state to all clients in table select
+							let table_list = build_table_list(&tables_lock);
+							broadcast_lobby_state(&table_list, &mut conns);
 						} else {
 							if let Some(conn) = conns.get_mut(&conn_id) {
 								conn.send(&ServerMessage::Error {
@@ -703,6 +721,10 @@ fn process_message(
 					if table.remove_ai(seat) {
 						let msg = ServerMessage::AIRemoved { seat };
 						broadcast_to_table(&tid, &msg, &mut tables_lock, &mut conns);
+
+						// Broadcast updated lobby state to all clients in table select
+						let table_list = build_table_list(&tables_lock);
+						broadcast_lobby_state(&table_list, &mut conns);
 					} else {
 						if let Some(conn) = conns.get_mut(&conn_id) {
 							conn.send(&ServerMessage::Error {
@@ -766,6 +788,23 @@ fn broadcast_to_table_except(
 					conn.send(msg);
 				}
 			}
+		}
+	}
+}
+
+fn build_table_list(tables: &HashMap<String, TableRoom>) -> Vec<TableInfo> {
+	let mut table_list: Vec<(usize, TableInfo)> = tables.values()
+		.map(|t| (t.order, t.to_info()))
+		.collect();
+	table_list.sort_by_key(|(order, _)| *order);
+	table_list.into_iter().map(|(_, info)| info).collect()
+}
+
+fn broadcast_lobby_state(table_list: &[TableInfo], conns: &mut HashMap<ConnectionId, Connection>) {
+	let msg = ServerMessage::LobbyState { tables: table_list.to_vec() };
+	for conn in conns.values_mut() {
+		if conn.current_table.is_none() {
+			conn.send(&msg);
 		}
 	}
 }

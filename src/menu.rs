@@ -249,6 +249,9 @@ impl<B: LobbyBackend> Menu<B> {
 	}
 
 	pub fn run<Back: Backend>(&mut self, terminal: &mut Terminal<Back>) -> io::Result<MenuResult> {
+		// Flush any stale keyboard input from previous session
+		flush_keyboard_buffer();
+
 		self.backend.send(LobbyCommand::ListTables);
 
 		loop {
@@ -603,5 +606,11 @@ impl<B: LobbyBackend> Menu<B> {
 		}
 
 		lines
+	}
+}
+
+fn flush_keyboard_buffer() {
+	while event::poll(std::time::Duration::from_millis(0)).unwrap_or(false) {
+		let _ = event::read();
 	}
 }

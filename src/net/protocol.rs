@@ -49,6 +49,7 @@ pub enum ServerMessage {
 		min_players: usize,
 		max_players: usize,
 	},
+	TableLeft,
 	PlayerJoinedTable {
 		seat: Seat,
 		username: String,
