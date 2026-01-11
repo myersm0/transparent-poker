@@ -7,7 +7,7 @@ use std::thread;
 use crate::bank::Bank;
 use crate::config::{load_players_auto, load_strategies_auto, PlayerConfig};
 use crate::engine::{BettingStructure, GameRunner, RunnerConfig};
-use crate::events::{Card, GameEvent, PlayerAction, Seat};
+use crate::events::{Card, GameEvent, LeaveReason, PlayerAction, Seat};
 use crate::net::protocol::*;
 use crate::net::remote_player::RemotePlayer;
 use crate::players::RulesPlayer;
@@ -35,15 +35,21 @@ struct ActiveGame {
 	conn_to_seat: HashMap<ConnectionId, Seat>,
 	sitting_out: Arc<Mutex<std::collections::HashSet<Seat>>>,
 	game_finished: Arc<AtomicBool>,
+	quit_signal: Arc<AtomicBool>,
 }
 
 impl ActiveGame {
-	fn new(sitting_out: Arc<Mutex<std::collections::HashSet<Seat>>>, game_finished: Arc<AtomicBool>) -> Self {
+	fn new(
+		sitting_out: Arc<Mutex<std::collections::HashSet<Seat>>>,
+		game_finished: Arc<AtomicBool>,
+		quit_signal: Arc<AtomicBool>,
+	) -> Self {
 		Self {
 			action_senders: HashMap::new(),
 			conn_to_seat: HashMap::new(),
 			sitting_out,
 			game_finished,
+			quit_signal,
 		}
 	}
 
@@ -70,6 +76,14 @@ impl ActiveGame {
 
 	fn is_finished(&self) -> bool {
 		self.game_finished.load(Ordering::SeqCst)
+	}
+
+	fn has_humans(&self) -> bool {
+		!self.conn_to_seat.is_empty()
+	}
+
+	fn signal_quit(&self) {
+		self.quit_signal.store(true, Ordering::SeqCst);
 	}
 }
 
@@ -335,8 +349,8 @@ fn handle_connection(
 			let mut tables = tables.lock().unwrap();
 			if let Some(table) = tables.get_mut(&tid) {
 				let seat = table.remove_player(conn_id);
-				let active = table.active_game.is_some();
 				let no_humans = table.players.is_empty();
+				let has_active = table.active_game.is_some();
 
 				// If no humans left and game hasn't started, reset table
 				if no_humans && table.status == TableStatus::Waiting {
@@ -344,7 +358,15 @@ fn handle_connection(
 					table.ready.clear();
 				}
 
-				(seat, active)
+				// If game is active, update active_game and signal quit if no humans left
+				if let Some(ref mut active_game) = table.active_game {
+					active_game.remove_player(conn_id);
+					if !active_game.has_humans() {
+						active_game.signal_quit();
+					}
+				}
+
+				(seat, has_active)
 			} else {
 				(None, false)
 			}
@@ -355,10 +377,11 @@ fn handle_connection(
 			let msg = ServerMessage::PlayerLeftTable { seat, username };
 			broadcast_to_table(&tid, &msg, &mut tables.lock().unwrap(), &mut connections.lock().unwrap());
 
+			// Send PlayerLeft event if game is active (even if quitting, for final state)
 			if has_active_game {
 				let game_event = ServerMessage::GameEvent(GameEvent::PlayerLeft {
 					seat,
-					reason: crate::events::LeaveReason::Disconnected,
+					reason: LeaveReason::Disconnected,
 				});
 				broadcast_to_table(&tid, &game_event, &mut tables.lock().unwrap(), &mut connections.lock().unwrap());
 			}
@@ -528,23 +551,34 @@ fn process_message(
 
 			let table_id = conns.get(&conn_id).and_then(|c| c.current_table.clone());
 			if let Some(tid) = table_id {
-				let (removed_seat, username) = {
+				let (removed_seat, username, has_active_game) = {
 					if let Some(table) = tables_lock.get_mut(&tid) {
 						if let Some(seat) = table.remove_player(conn_id) {
 							let username = conns.get(&conn_id)
 								.and_then(|c| c.username.clone())
 								.unwrap_or_else(|| "Unknown".to_string());
+							let has_active = table.active_game.is_some();
+
 							// If no humans left and game hasn't started, reset table
 							if table.players.is_empty() && table.status == TableStatus::Waiting {
 								table.ai_players.clear();
 								table.ready.clear();
 							}
-							(Some(seat), username)
+
+							// If game is active, update active_game and signal quit if no humans left
+							if let Some(ref mut active_game) = table.active_game {
+								active_game.remove_player(conn_id);
+								if !active_game.has_humans() {
+									active_game.signal_quit();
+								}
+							}
+
+							(Some(seat), username, has_active)
 						} else {
-							(None, String::new())
+							(None, String::new(), false)
 						}
 					} else {
-						(None, String::new())
+						(None, String::new(), false)
 					}
 				};
 
@@ -557,6 +591,15 @@ fn process_message(
 					// Then notify others at the table
 					let msg = ServerMessage::PlayerLeftTable { seat, username };
 					broadcast_to_table(&tid, &msg, &mut tables_lock, &mut conns);
+
+					// Send PlayerLeft event if game is active
+					if has_active_game {
+						let game_event = ServerMessage::GameEvent(GameEvent::PlayerLeft {
+							seat,
+							reason: LeaveReason::Quit,
+						});
+						broadcast_to_table(&tid, &game_event, &mut tables_lock, &mut conns);
+					}
 
 					// Broadcast updated lobby state to all connected clients
 					let table_list = build_table_list(&tables_lock);
@@ -915,7 +958,11 @@ fn start_game(info: GameStartInfo, bank: Arc<Mutex<Bank>>) -> ActiveGame {
 	let (mut runner, game_handle) = GameRunner::new(runner_config, runtime_handle.clone());
 
 	let game_finished = Arc::new(AtomicBool::new(false));
-	let mut active_game = ActiveGame::new(Arc::clone(&game_handle.sitting_out), Arc::clone(&game_finished));
+	let mut active_game = ActiveGame::new(
+		Arc::clone(&game_handle.sitting_out),
+		Arc::clone(&game_finished),
+		Arc::clone(&game_handle.quit_signal),
+	);
 
 	// Load strategies for AI players
 	let strategies = load_strategies_auto().unwrap_or_default();
