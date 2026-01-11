@@ -276,6 +276,7 @@ impl GameRunner {
 				hand_num,
 				stacks.clone(),
 				rake_config,
+				Arc::clone(&self.action_history),
 			);
 
 			// Keep reference to hole cards and folded status for HandResult

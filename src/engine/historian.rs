@@ -10,6 +10,7 @@ use rs_poker::arena::{
 use crate::events::{
 	BlindType, Card, ChatSender, GameEvent, HandId, PlayerAction, PotType, Seat, Street,
 };
+use crate::players::ActionRecord;
 
 #[derive(Clone)]
 pub struct RakeConfig {
@@ -41,6 +42,8 @@ pub struct EventHistorian {
 	folded: Arc<Mutex<Vec<bool>>>,
 	rake_config: RakeConfig,
 	rake_collected: Arc<Mutex<f32>>,
+	action_history: Arc<Mutex<Vec<ActionRecord>>>,
+	current_street: Arc<Mutex<Street>>,
 }
 
 impl EventHistorian {
@@ -51,6 +54,7 @@ impl EventHistorian {
 		hand_num: u32,
 		starting_stacks: Vec<f32>,
 		rake_config: RakeConfig,
+		action_history: Arc<Mutex<Vec<ActionRecord>>>,
 	) -> Self {
 		let num_players = starting_stacks.len();
 		Self {
@@ -66,6 +70,8 @@ impl EventHistorian {
 			folded: Arc::new(Mutex::new(vec![false; num_players])),
 			rake_config,
 			rake_collected: Arc::new(Mutex::new(0.0)),
+			action_history,
+			current_street: Arc::new(Mutex::new(Street::Preflop)),
 		}
 	}
 
@@ -152,9 +158,12 @@ impl Historian for EventHistorian {
 					emitted.insert(round_key);
 				}
 
+				let street = self.convert_street(round);
+				*self.current_street.lock().unwrap() = street;
+
 				let board = self.board.lock().unwrap().clone();
 				self.emit(GameEvent::StreetChanged {
-					street: self.convert_street(round),
+					street,
 					board,
 				});
 
@@ -239,6 +248,13 @@ impl Historian for EventHistorian {
 					},
 				};
 
+				let street = *self.current_street.lock().unwrap();
+				self.action_history.lock().unwrap().push(ActionRecord {
+					seat: Seat(payload.idx),
+					action: action.clone(),
+					street,
+				});
+
 				self.emit(GameEvent::ActionTaken {
 					seat: Seat(payload.idx),
 					action: action.clone(),
@@ -306,6 +322,8 @@ impl Clone for EventHistorian {
 			folded: Arc::clone(&self.folded),
 			rake_config: self.rake_config.clone(),
 			rake_collected: Arc::clone(&self.rake_collected),
+			action_history: Arc::clone(&self.action_history),
+			current_street: Arc::clone(&self.current_street),
 		}
 	}
 }
