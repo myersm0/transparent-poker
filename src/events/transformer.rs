@@ -251,9 +251,18 @@ impl ViewUpdater {
 
 			GameEvent::PlayerLeft { seat, reason } => {
 				if let Some(player) = view.players.iter_mut().find(|p| p.seat == seat.0) {
+					let name = player.name.clone();
 					match reason {
 						LeaveReason::Eliminated => player.status = PlayerStatus::Eliminated,
 						LeaveReason::Spectating => player.status = PlayerStatus::SittingOut,
+						LeaveReason::Disconnected => {
+							player.status = PlayerStatus::SittingOut;
+							view.chat_messages.push(ChatMessage {
+								sender: String::new(),
+								text: format!("{} disconnected", name),
+								is_system: true,
+							});
+						}
 						_ => player.status = PlayerStatus::Eliminated,
 					}
 				}

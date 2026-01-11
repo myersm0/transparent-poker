@@ -31,19 +31,31 @@ impl Connection {
 struct ActiveGame {
 	action_senders: HashMap<Seat, mpsc::Sender<PlayerAction>>,
 	conn_to_seat: HashMap<ConnectionId, Seat>,
+	sitting_out: Arc<Mutex<std::collections::HashSet<Seat>>>,
 }
 
 impl ActiveGame {
-	fn new() -> Self {
+	fn new(sitting_out: Arc<Mutex<std::collections::HashSet<Seat>>>) -> Self {
 		Self {
 			action_senders: HashMap::new(),
 			conn_to_seat: HashMap::new(),
+			sitting_out,
 		}
 	}
 
 	fn register_player(&mut self, conn_id: ConnectionId, seat: Seat, action_tx: mpsc::Sender<PlayerAction>) {
 		self.action_senders.insert(seat, action_tx);
 		self.conn_to_seat.insert(conn_id, seat);
+	}
+
+	fn remove_player(&mut self, conn_id: ConnectionId) -> Option<Seat> {
+		if let Some(seat) = self.conn_to_seat.remove(&conn_id) {
+			self.action_senders.remove(&seat);
+			self.sitting_out.lock().unwrap().insert(seat);
+			Some(seat)
+		} else {
+			None
+		}
 	}
 
 	fn submit_action(&self, conn_id: ConnectionId, action: PlayerAction) -> Result<(), String> {
@@ -115,6 +127,9 @@ impl TableRoom {
 		if let Some(s) = seat {
 			self.players.remove(&s);
 			self.ready.remove(&s);
+			if let Some(ref mut active_game) = self.active_game {
+				active_game.remove_player(conn_id);
+			}
 		}
 		seat
 	}
@@ -182,6 +197,25 @@ impl TableRoom {
 
 		infos.sort_by_key(|p| p.seat.0);
 		infos
+	}
+
+	fn has_username(&self, username: &str, connections: &HashMap<ConnectionId, Connection>) -> bool {
+		let username_lower = username.to_lowercase();
+		for &conn_id in self.players.values() {
+			if let Some(conn) = connections.get(&conn_id) {
+				if let Some(ref name) = conn.username {
+					if name.to_lowercase() == username_lower {
+						return true;
+					}
+				}
+			}
+		}
+		for ai in self.ai_players.values() {
+			if ai.name.to_lowercase() == username_lower {
+				return true;
+			}
+		}
+		false
 	}
 }
 
@@ -289,12 +323,28 @@ fn handle_connection(
 	};
 
 	if let Some(tid) = table_id {
-		let mut tables = tables.lock().unwrap();
-		if let Some(table) = tables.get_mut(&tid) {
-			if let Some(seat) = table.remove_player(conn_id) {
-				let username = "Disconnected".to_string();
-				let msg = ServerMessage::PlayerLeftTable { seat, username };
-				broadcast_to_table(&tid, &msg, &mut tables, &mut connections.lock().unwrap());
+		let (removed_seat, has_active_game) = {
+			let mut tables = tables.lock().unwrap();
+			if let Some(table) = tables.get_mut(&tid) {
+				let seat = table.remove_player(conn_id);
+				let active = table.active_game.is_some();
+				(seat, active)
+			} else {
+				(None, false)
+			}
+		};
+
+		if let Some(seat) = removed_seat {
+			let username = "Disconnected".to_string();
+			let msg = ServerMessage::PlayerLeftTable { seat, username };
+			broadcast_to_table(&tid, &msg, &mut tables.lock().unwrap(), &mut connections.lock().unwrap());
+
+			if has_active_game {
+				let game_event = ServerMessage::GameEvent(GameEvent::PlayerLeft {
+					seat,
+					reason: crate::events::LeaveReason::Disconnected,
+				});
+				broadcast_to_table(&tid, &game_event, &mut tables.lock().unwrap(), &mut connections.lock().unwrap());
 			}
 		}
 	}
@@ -361,6 +411,15 @@ fn process_message(
 					if let Some(conn) = conns.get_mut(&conn_id) {
 						conn.send(&ServerMessage::Error {
 							message: "Table is not accepting players".to_string(),
+						});
+					}
+					return;
+				}
+
+				if table.has_username(&username, &conns) {
+					if let Some(conn) = conns.get_mut(&conn_id) {
+						conn.send(&ServerMessage::Error {
+							message: format!("Player '{}' is already at this table", username),
 						});
 					}
 					return;
@@ -712,8 +771,6 @@ fn broadcast_to_table_except(
 }
 
 fn start_game(info: GameStartInfo, bank: Arc<Mutex<Bank>>) -> ActiveGame {
-	let mut active_game = ActiveGame::new();
-
 	let runtime = tokio::runtime::Builder::new_multi_thread()
 		.enable_all()
 		.build()
@@ -722,6 +779,8 @@ fn start_game(info: GameStartInfo, bank: Arc<Mutex<Bank>>) -> ActiveGame {
 
 	let runner_config = build_runner_config(&info.config);
 	let (mut runner, game_handle) = GameRunner::new(runner_config, runtime_handle.clone());
+
+	let mut active_game = ActiveGame::new(Arc::clone(&game_handle.sitting_out));
 
 	// Load strategies for AI players
 	let strategies = load_strategies_auto().unwrap_or_default();
