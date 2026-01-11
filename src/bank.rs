@@ -19,7 +19,7 @@ struct ProfilesFile {
 }
 
 fn default_bankroll() -> f32 {
-	1000.0
+	10000.0
 }
 
 impl Default for ProfilesFile {
@@ -144,8 +144,11 @@ impl Bank {
 
 	pub fn debit(&mut self, id: &str, amount: f32) -> Result<(), InsufficientFunds> {
 		let id = normalize_id(id);
-		self.ensure_exists(&id);
-		let profile = self.profiles.get_mut(&id).expect("profile exists after ensure_exists");
+		let profile = self.profiles.get_mut(&id).ok_or_else(|| InsufficientFunds {
+			player_id: id.clone(),
+			required: amount,
+			available: 0.0,
+		})?;
 
 		if profile.bankroll < amount {
 			return Err(InsufficientFunds {
@@ -162,10 +165,18 @@ impl Bank {
 
 	pub fn credit(&mut self, id: &str, amount: f32) {
 		let id = normalize_id(id);
-		self.ensure_exists(&id);
-		let profile = self.profiles.get_mut(&id).expect("profile exists after ensure_exists");
-		profile.bankroll += amount;
-		logging::log("Bank", "CREDIT", &format!("{}: +${:.2} (bal: ${:.2})", id, amount, profile.bankroll));
+		if let Some(profile) = self.profiles.get_mut(&id) {
+			profile.bankroll += amount;
+			logging::log("Bank", "CREDIT", &format!("{}: +${:.2} (bal: ${:.2})", id, amount, profile.bankroll));
+		} else {
+			// Create profile for new players (e.g. AI) receiving winnings
+			let bankroll = self.default_bankroll + amount;
+			self.profiles.insert(
+				id.clone(),
+				PlayerProfile { bankroll },
+			);
+			logging::log("Bank", "CREDIT", &format!("{}: +${:.2} (new profile, bal: ${:.2})", id, amount, bankroll));
+		}
 	}
 
 	pub fn buyin(&mut self, id: &str, amount: f32, table_id: &str) -> Result<(), InsufficientFunds> {

@@ -225,9 +225,11 @@ impl LobbyBackend for LocalBackend {
 					return;
 				}
 
-				let used_ids: Vec<String> = self.lobby_players.iter().map(|p| p.id.clone()).collect();
+				let used_ids: Vec<String> = self.lobby_players.iter()
+					.map(|p| p.id.to_lowercase())
+					.collect();
 				let mut available: Vec<_> = self.roster.iter()
-					.filter(|p| !used_ids.contains(&p.id))
+					.filter(|p| !used_ids.contains(&p.id.to_lowercase()))
 					.collect();
 
 				use rand::seq::SliceRandom;
@@ -245,6 +247,7 @@ impl LobbyBackend for LocalBackend {
 						.max()
 						.map(|m| Seat(m + 1))
 						.unwrap_or(Seat(0));
+					self.bank.ensure_exists(&ai_config.id);
 					let ai_bankroll = self.bank.get_bankroll(&ai_config.id);
 					let player = LobbyPlayer {
 						seat: Some(next_seat),
@@ -321,17 +324,19 @@ impl LobbyBackend for LocalBackend {
 impl LocalBackend {
 	fn auto_fill_lobby(&mut self) {
 		let max_players = self.current_table.as_ref().map(|t| t.max_players).unwrap_or(6);
-		let used_ids: Vec<String> = self.lobby_players.iter().map(|p| p.id.clone()).collect();
+		let used_ids: Vec<String> = self.lobby_players.iter()
+			.map(|p| p.id.to_lowercase())
+			.collect();
 
 		let mut available: Vec<_> = self.roster.iter()
-			.filter(|p| !used_ids.contains(&p.id))
+			.filter(|p| !used_ids.contains(&p.id.to_lowercase()))
 			.collect();
 
 		use rand::seq::SliceRandom;
 		available.shuffle(&mut rand::rng());
 
 		// Collect players to add first to avoid borrow issues
-		let mut to_add: Vec<(String, String, String, f32)> = Vec::new();
+		let mut to_add: Vec<(String, String, String)> = Vec::new();
 		let mut current_count = self.lobby_players.len();
 
 		for ai_config in available {
@@ -339,19 +344,19 @@ impl LocalBackend {
 				break;
 			}
 			if rand::random::<f32>() < ai_config.join_probability {
-				let ai_bankroll = self.bank.get_bankroll(&ai_config.id);
 				to_add.push((
 					ai_config.id.clone(),
 					ai_config.display_name(),
 					ai_config.strategy.clone(),
-					ai_bankroll,
 				));
 				current_count += 1;
 			}
 		}
 
-		// Now add players and emit events
-		for (id, name, strategy, bankroll) in to_add {
+		// Ensure AI players exist and get their bankrolls
+		for (id, name, strategy) in to_add {
+			self.bank.ensure_exists(&id);
+			let bankroll = self.bank.get_bankroll(&id);
 			let seat = Seat(self.lobby_players.len());
 			let player = LobbyPlayer {
 				seat: Some(seat),

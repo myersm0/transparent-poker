@@ -782,12 +782,20 @@ fn process_message(
 					}
 
 					if let Some(seat) = table.find_empty_seat() {
-						let used_ids: Vec<String> = table.ai_players.values()
-							.map(|ai| ai.id.clone())
+						// Collect all used IDs (humans + AI) case-insensitively
+						let mut used_ids: Vec<String> = table.ai_players.values()
+							.map(|ai| ai.id.to_lowercase())
 							.collect();
+						for &cid in table.players.values() {
+							if let Some(conn) = conns.get(&cid) {
+								if let Some(username) = &conn.username {
+									used_ids.push(username.to_lowercase());
+								}
+							}
+						}
 
 						let mut available: Vec<_> = ai_roster.iter()
-							.filter(|p| !used_ids.contains(&p.id))
+							.filter(|p| !used_ids.contains(&p.id.to_lowercase()))
 							.collect();
 
 						use rand::seq::SliceRandom;
@@ -799,6 +807,13 @@ fn process_message(
 							.or_else(|| available.first().copied());
 
 						if let Some(ai_config) = selected {
+							// Ensure AI player has a bank profile
+							{
+								let mut bank_lock = bank.lock().unwrap();
+								bank_lock.ensure_exists(&ai_config.id);
+								let _ = bank_lock.save();
+							}
+
 							let name = ai_config.display_name();
 							table.add_ai(seat, ai_config.id.clone(), name.clone(), ai_config.strategy.clone());
 
