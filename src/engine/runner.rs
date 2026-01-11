@@ -278,6 +278,10 @@ impl GameRunner {
 				rake_config,
 			);
 
+			// Keep reference to hole cards and folded status for HandResult
+			let hole_cards_ref = historian.hole_cards();
+			let folded_ref = historian.folded();
+
 			let mut sim = HoldemSimulationBuilder::default()
 				.game_state(game_state)
 				.agents(agents)
@@ -290,16 +294,26 @@ impl GameRunner {
 			let old_stacks = stacks.clone();
 			stacks = sim.game_state.stacks.clone();
 
+			let hole_cards = hole_cards_ref.lock().unwrap();
+			let folded = folded_ref.lock().unwrap();
+
 			let results: Vec<HandResult> = self
 				.players
 				.iter()
 				.enumerate()
-				.map(|(i, _p)| HandResult {
-					seat: Seat(i),
-					stack_change: stacks[i] - old_stacks[i],
-					final_stack: stacks[i],
-					showed_cards: None,
-					hand_description: None,
+				.map(|(i, _p)| {
+					let showed = if !folded[i] {
+						hole_cards[i].clone()
+					} else {
+						None
+					};
+					HandResult {
+						seat: Seat(i),
+						stack_change: stacks[i] - old_stacks[i],
+						final_stack: stacks[i],
+						showed_cards: showed,
+						hand_description: None,
+					}
 				})
 				.collect();
 

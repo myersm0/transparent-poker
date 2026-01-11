@@ -203,11 +203,34 @@ impl ViewUpdater {
 				}
 			}
 
-			GameEvent::HandEnded { .. } => {
+			GameEvent::HandEnded { results, .. } => {
 				view.action_prompt = None;
 				for player in &mut view.players {
 					player.is_actor = false;
 					player.current_bet = 0.0;
+				}
+
+				// Reveal cards from showdown (backup if ShowdownReveal wasn't received)
+				for result in results {
+					if let Some(cards) = &result.showed_cards {
+						if let Some(player) = view.players.iter_mut().find(|p| p.seat == result.seat.0) {
+							player.hole_cards = Some([
+								ViewCard::new(cards[0].rank, cards[0].suit),
+								ViewCard::new(cards[1].rank, cards[1].suit),
+							]);
+						}
+					}
+				}
+			}
+
+			GameEvent::ShowdownReveal { reveals } => {
+				for (seat, cards) in reveals {
+					if let Some(player) = view.players.iter_mut().find(|p| p.seat == seat.0) {
+						player.hole_cards = Some([
+							ViewCard::new(cards[0].rank, cards[0].suit),
+							ViewCard::new(cards[1].rank, cards[1].suit),
+						]);
+					}
 				}
 			}
 

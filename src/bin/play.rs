@@ -5,7 +5,7 @@ use std::time::{Duration, Instant};
 
 use clap::{Parser, Subcommand};
 use crossterm::{
-	event::{self, Event, KeyCode, KeyEventKind},
+	event::{self, Event, KeyCode, KeyEventKind, KeyModifiers},
 	execute,
 	terminal::{disable_raw_mode, enable_raw_mode, EnterAlternateScreen, LeaveAlternateScreen},
 };
@@ -23,16 +23,18 @@ use transparent_poker::config::{load_players_auto, load_strategies_auto};
 use transparent_poker::engine::{BettingStructure, GameRunner, RunnerConfig};
 use transparent_poker::events::{GameEvent, Seat, Standing, ViewUpdater};
 use transparent_poker::logging::{self, tui as log};
-use transparent_poker::menu::{LobbyPlayer, Menu, MenuResult};
+use transparent_poker::lobby::{LocalBackend, LobbyPlayer, NetworkBackend};
+use transparent_poker::menu::{Menu, MenuResult};
+use transparent_poker::net::{GameClient, GameServer, ServerMessage};
 use transparent_poker::players::{ActionRequest, PlayerResponse, RulesPlayer, TerminalPlayer};
 use transparent_poker::table::{load_tables, BlindClock, GameFormat, TableConfig};
 use transparent_poker::theme::Theme;
-use transparent_poker::tui::{InputEffect, InputState, TableWidget};
+use transparent_poker::tui::{GameUI, GameUIAction, InputEffect, InputState, TableWidget};
 use transparent_poker::view::TableView;
 
 #[derive(Parser)]
 #[command(name = "poker")]
-#[command(about = "Transparent poker - play Texas Hold'em against AI opponents")]
+#[command(about = "Transparent Poker")]
 #[command(version)]
 struct Cli {
 	#[command(subcommand)]
@@ -44,7 +46,7 @@ enum Commands {
 	#[command(about = "Start the game")]
 	Play {
 		#[arg(short, long, env = "POKER_USER")]
-		#[arg(help = "Player name (must exist in profiles)")]
+		#[arg(help = "Player name (must exist in profiles for local, or username for network)")]
 		player: Option<String>,
 
 		#[arg(short, long, env = "POKER_THEME")]
@@ -54,6 +56,17 @@ enum Commands {
 		#[arg(long)]
 		#[arg(help = "RNG seed for reproducible games")]
 		seed: Option<u64>,
+
+		#[arg(short, long)]
+		#[arg(help = "Connect to server (e.g., localhost:9999)")]
+		server: Option<String>,
+	},
+
+	#[command(about = "Run a poker server")]
+	Server {
+		#[arg(short, long, default_value = "127.0.0.1:9999")]
+		#[arg(help = "Address to bind")]
+		bind: String,
 	},
 
 	#[command(about = "List available color themes")]
@@ -214,6 +227,14 @@ fn build_info_lines(table: &TableConfig, num_players: usize, seed: Option<u64>) 
 
 	lines
 }
+
+// ============================================================================
+// Network Play Mode
+// ============================================================================
+
+// ============================================================================
+// Local Play Mode
+// ============================================================================
 
 struct App {
 	table_view: TableView,
@@ -429,8 +450,16 @@ fn main() -> io::Result<()> {
 			cmd_bankroll(&name, action)
 		}
 
-		Commands::Play { player, theme, seed } => {
-			cmd_play(player, theme, seed)
+		Commands::Server { bind } => {
+			cmd_server(&bind)
+		}
+
+		Commands::Play { player, theme, seed, server } => {
+			if let Some(addr) = server {
+				cmd_play_network(player, theme, &addr)
+			} else {
+				cmd_play_local(player, theme, seed)
+			}
 		}
 	}
 }
@@ -511,7 +540,136 @@ fn cmd_bankroll(name: &str, action: BankrollAction) -> io::Result<()> {
 	Ok(())
 }
 
-fn cmd_play(player: Option<String>, theme: Option<String>, seed: Option<u64>) -> io::Result<()> {
+fn cmd_server(bind: &str) -> io::Result<()> {
+	println!("Starting poker server on {}...", bind);
+	let server = GameServer::new();
+	server.run(bind)
+}
+
+fn cmd_play_network(player: Option<String>, theme: Option<String>, addr: &str) -> io::Result<()> {
+	let theme_name = theme
+		.clone()
+		.or_else(|| std::env::var("POKER_THEME").ok())
+		.unwrap_or_else(|| "classic".to_string());
+	let theme = Theme::load_named(&theme_name).unwrap_or_default();
+
+	println!("Connecting to {}...", addr);
+	let mut client = GameClient::connect(addr)?;
+
+	let username = player.unwrap_or_else(|| {
+		std::env::var("USER")
+			.or_else(|_| std::env::var("USERNAME"))
+			.unwrap_or_else(|_| "Player".to_string())
+	});
+
+	client.login(&username)?;
+	std::thread::sleep(Duration::from_millis(100));
+
+	let backend = NetworkBackend::new(client);
+	let mut menu = Menu::new(backend, username.clone(), theme.clone());
+
+	enable_raw_mode()?;
+	let mut stdout = stdout();
+	execute!(stdout, EnterAlternateScreen)?;
+	let backend = CrosstermBackend::new(stdout);
+	let mut terminal = Terminal::new(backend)?;
+
+	let result = menu.run(&mut terminal);
+
+	match result {
+		Ok(MenuResult::Quit) => {
+			disable_raw_mode()?;
+			execute!(terminal.backend_mut(), LeaveAlternateScreen)?;
+			Ok(())
+		}
+		Ok(MenuResult::NetworkGameStarted { seat }) => {
+			let mut client = menu.into_backend().into_client();
+			run_network_game(&mut terminal, &mut client, seat, &username, theme, theme_name)?;
+			disable_raw_mode()?;
+			execute!(terminal.backend_mut(), LeaveAlternateScreen)?;
+			Ok(())
+		}
+		Ok(MenuResult::StartGame { .. }) => {
+			disable_raw_mode()?;
+			execute!(terminal.backend_mut(), LeaveAlternateScreen)?;
+			Ok(())
+		}
+		Err(e) => {
+			disable_raw_mode()?;
+			execute!(terminal.backend_mut(), LeaveAlternateScreen)?;
+			Err(e)
+		}
+	}
+}
+
+fn run_network_game(
+	terminal: &mut Terminal<CrosstermBackend<io::Stdout>>,
+	client: &mut GameClient,
+	_initial_seat: Seat,
+	username: &str,
+	theme: Theme,
+	theme_name: String,
+) -> io::Result<()> {
+	let mut game_ui = GameUI::new(None, theme.clone(), theme_name.clone());
+	let mut game_seat: Option<Seat> = None;
+
+	loop {
+		while let Some(msg) = client.try_recv() {
+			match msg {
+				ServerMessage::GameEvent(event) => {
+					if let GameEvent::HandStarted { seats, .. } = &event {
+						if game_seat.is_none() {
+							let found_seat = seats.iter()
+								.find(|s| s.name.eq_ignore_ascii_case(username))
+								.map(|s| s.seat);
+
+							if let Some(seat) = found_seat {
+								game_seat = Some(seat);
+								game_ui = GameUI::new(Some(seat), theme.clone(), theme_name.clone());
+							}
+						}
+					}
+					game_ui.apply_event(&event);
+				}
+				ServerMessage::ActionRequest { valid_actions, .. } => {
+					game_ui.enter_action_mode(valid_actions);
+				}
+				ServerMessage::Error { message } => {
+					game_ui.status_message = Some(format!("Error: {}", message));
+				}
+				_ => {}
+			}
+		}
+
+		terminal.draw(|f| {
+			game_ui.render(f, f.area());
+		})?;
+
+		if event::poll(Duration::from_millis(50))? {
+			if let Event::Key(key) = event::read()? {
+				if key.kind != KeyEventKind::Press {
+					continue;
+				}
+
+				if key.code == KeyCode::Char('c') && key.modifiers.contains(KeyModifiers::CONTROL) {
+					return Ok(());
+				}
+
+				match game_ui.handle_key(key.code) {
+					GameUIAction::Respond(PlayerResponse::Action(action)) => {
+						let _ = client.action(action);
+					}
+					GameUIAction::Quit => {
+						return Ok(());
+					}
+					_ => {}
+				}
+			}
+		}
+	}
+}
+
+fn cmd_play_local(player: Option<String>, theme: Option<String>, seed: Option<u64>) -> io::Result<()> {
 	let theme_name = theme
 		.clone()
 		.or_else(|| std::env::var("POKER_THEME").ok())
@@ -552,35 +710,57 @@ fn run_app(
 	let bank = Bank::load().map_err(|e| io::Error::new(io::ErrorKind::Other, e))?;
 	let roster = load_players_auto().unwrap_or_default();
 
-	let mut menu = Menu::new(tables, bank, host_id.clone(), roster, theme.clone());
+	let backend = LocalBackend::new(tables, roster, bank, host_id.clone());
+	let mut menu = Menu::new(backend, host_id.clone(), theme.clone());
 
 	match menu.run(terminal)? {
 		MenuResult::Quit => return Ok(()),
+		MenuResult::NetworkGameStarted { .. } => return Ok(()),
 		MenuResult::StartGame { table, players } => {
-			let mut bank = Bank::load().map_err(|e| io::Error::new(io::ErrorKind::Other, e))?;
-			let standings = run_game(terminal, table.clone(), players, &mut bank, &host_id, theme, theme_name, cli_seed)?;
+			let mut backend = menu.into_backend();
+
+			// Map display names to bank ids
+			let name_to_id: std::collections::HashMap<String, String> = players.iter()
+				.map(|p| (p.name.clone(), p.id.clone()))
+				.collect();
+
+			let standings = run_game(terminal, table.clone(), players, backend.bank_mut(), &host_id, theme, theme_name, cli_seed)?;
+
+			// Check if this was an early termination (finish_position == 0)
+			let early_termination = standings.first().map(|s| s.finish_position == 0).unwrap_or(false);
 
 			match table.format {
 				GameFormat::Cash => {
+					// Cash games: always credit back current stacks
 					for standing in &standings {
-						bank.cashout(&standing.name, standing.final_stack, &table.id);
+						let bank_id = name_to_id.get(&standing.name).unwrap_or(&standing.name);
+						backend.bank_mut().cashout(bank_id, standing.final_stack, &table.id);
+					}
+					if early_termination {
+						log::event("cash game terminated early, stacks refunded");
 					}
 				}
 				GameFormat::SitNGo => {
-					let buy_in = table.buy_in.unwrap_or(0.0);
-					let num_players = standings.len();
-					if let Some(payout_pcts) = &table.payouts {
-						let payouts = transparent_poker::table::calculate_payouts(buy_in, num_players, payout_pcts);
-						for (i, payout) in payouts.iter().enumerate() {
-							if let Some(standing) = standings.iter().find(|s| s.finish_position == (i + 1) as u8) {
-								bank.award_prize(&standing.name, *payout, i + 1);
+					// Tournaments: only pay out if game completed normally
+					if early_termination {
+						log::event("tournament terminated early, no refunds");
+					} else {
+						let buy_in = table.buy_in.unwrap_or(0.0);
+						let num_players = standings.len();
+						if let Some(payout_pcts) = &table.payouts {
+							let payouts = transparent_poker::table::calculate_payouts(buy_in, num_players, payout_pcts);
+							for (i, payout) in payouts.iter().enumerate() {
+								if let Some(standing) = standings.iter().find(|s| s.finish_position == (i + 1) as u8) {
+									let bank_id = name_to_id.get(&standing.name).unwrap_or(&standing.name);
+									backend.bank_mut().award_prize(bank_id, *payout, i + 1);
+								}
 							}
 						}
 					}
 				}
 			}
 
-			bank.save().map_err(|e| io::Error::new(io::ErrorKind::Other, e))?;
+			backend.bank_mut().save().map_err(|e| io::Error::new(io::ErrorKind::Other, e))?;
 		}
 	}
 
@@ -600,6 +780,9 @@ fn run_game(
 	let (small_blind, big_blind) = table.current_blinds();
 	let starting_stack = table.effective_starting_stack();
 	let buy_in = table.effective_buy_in();
+
+	// Save player info for early termination fallback
+	let player_names: Vec<String> = lobby_players.iter().map(|p| p.name.clone()).collect();
 
 	for player in &lobby_players {
 		bank.buyin(&player.id, buy_in, &table.id)
@@ -651,7 +834,7 @@ fn run_game(
 	let seating_log: Vec<String> = shuffled_players
 		.iter()
 		.enumerate()
-		.map(|(i, p)| format!("{} -> Seat {}", p.id, i))
+		.map(|(i, p)| format!("{} -> Seat {}", p.name, i))
 		.collect();
 	logging::log("Engine", "SEATING", &seating_log.join(", "));
 
@@ -664,7 +847,7 @@ fn run_game(
 		let seat = Seat(seat_idx);
 
 		if lobby_player.is_human {
-			let (player, handle) = TerminalPlayer::new(seat, &lobby_player.id);
+			let (player, handle) = TerminalPlayer::new(seat, &lobby_player.name);
 			runner.add_player(Arc::new(player));
 			human_seat = Some(seat);
 			human_handle = Some(handle);
@@ -674,7 +857,7 @@ fn run_game(
 
 			let player = Arc::new(RulesPlayer::new(
 				seat,
-				&lobby_player.id,
+				&lobby_player.name,
 				strategy,
 				big_blind,
 			));
@@ -781,7 +964,33 @@ fn run_game(
 		}
 	}
 
-	Ok(app.final_standings)
+	// If game ended normally, use final_standings
+	// If terminated early, build standings from current table view state
+	// If table view is empty (quit before HandStarted), use original player list with buy-in
+	if !app.final_standings.is_empty() {
+		Ok(app.final_standings)
+	} else if !app.table_view.players.is_empty() {
+		let early_standings: Vec<Standing> = app.table_view.players.iter()
+			.map(|p| Standing {
+				seat: Seat(p.seat),
+				name: p.name.clone(),
+				final_stack: p.stack,
+				finish_position: 0,
+			})
+			.collect();
+		Ok(early_standings)
+	} else {
+		// Extreme early quit - refund buy-ins
+		let fallback_standings: Vec<Standing> = player_names.iter().enumerate()
+			.map(|(i, name)| Standing {
+				seat: Seat(i),
+				name: name.clone(),
+				final_stack: buy_in,
+				finish_position: 0,
+			})
+			.collect();
+		Ok(fallback_standings)
+	}
 }
 
 fn get_event_delay(event: &GameEvent, human_seat: Seat, delays: DelayConfig) -> u64 {
