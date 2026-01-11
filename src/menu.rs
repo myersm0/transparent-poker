@@ -463,7 +463,7 @@ impl<B: LobbyBackend> Menu<B> {
 				};
 				let line = Line::from(vec![
 					Span::styled(
-						format!("{:<24}", truncate_str(&t.name, 19)),
+						format!("{:<24}", truncate_str(&t.name, 24)),
 						Style::default().fg(self.theme.menu_text()),
 					),
 					Span::styled(
