@@ -151,8 +151,9 @@ fn list_themes() {
 
 fn resolve_player_id(player_arg: Option<&str>, bank: &Bank) -> Result<String, String> {
 	if let Some(name) = player_arg {
-		if bank.profile_exists(name) {
-			return Ok(name.to_string());
+		let normalized = name.to_lowercase();
+		if bank.profile_exists(&normalized) {
+			return Ok(normalized);
 		} else {
 			return Err(format!(
 				"Player '{}' not found. Use 'poker register {}' to create.",
@@ -467,15 +468,16 @@ fn main() -> io::Result<()> {
 fn cmd_register(name: &str, bankroll: f32) -> io::Result<()> {
 	let mut bank = Bank::load().map_err(|e| io::Error::new(io::ErrorKind::Other, e))?;
 
-	if bank.profile_exists(name) {
-		eprintln!("Player '{}' already exists.", name);
+	let normalized = name.to_lowercase();
+	if bank.profile_exists(&normalized) {
+		eprintln!("Player '{}' already exists.", normalized);
 		return Ok(());
 	}
 
-	bank.register(name, bankroll);
+	bank.register(&normalized, bankroll);
 	bank.save().map_err(|e| io::Error::new(io::ErrorKind::Other, e))?;
 
-	println!("Registered '{}' with bankroll ${:.0}", name, bankroll);
+	println!("Registered '{}' with bankroll ${:.0}", normalized, bankroll);
 	Ok(())
 }
 

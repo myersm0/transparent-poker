@@ -56,6 +56,10 @@ pub struct Bank {
 	path: PathBuf,
 }
 
+fn normalize_id(id: &str) -> String {
+	id.to_lowercase()
+}
+
 impl Bank {
 	pub fn load() -> Result<Self, String> {
 		let path = Self::config_path()?;
@@ -69,8 +73,14 @@ impl Bank {
 			ProfilesFile::default()
 		};
 
+		// Normalize all profile keys to lowercase
+		let profiles: HashMap<String, PlayerProfile> = file.profiles
+			.into_iter()
+			.map(|(k, v)| (normalize_id(&k), v))
+			.collect();
+
 		Ok(Self {
-			profiles: file.profiles,
+			profiles,
 			default_bankroll: file.default_bankroll,
 			path,
 		})
@@ -97,22 +107,25 @@ impl Bank {
 	}
 
 	pub fn get(&self, id: &str) -> PlayerProfile {
-		self.profiles.get(id).cloned().unwrap_or(PlayerProfile {
+		let id = normalize_id(id);
+		self.profiles.get(&id).cloned().unwrap_or(PlayerProfile {
 			bankroll: self.default_bankroll,
 		})
 	}
 
 	pub fn get_bankroll(&self, id: &str) -> f32 {
+		let id = normalize_id(id);
 		self.profiles
-			.get(id)
+			.get(&id)
 			.map(|p| p.bankroll)
 			.unwrap_or(self.default_bankroll)
 	}
 
 	pub fn ensure_exists(&mut self, id: &str) {
-		if !self.profiles.contains_key(id) {
+		let id = normalize_id(id);
+		if !self.profiles.contains_key(&id) {
 			self.profiles.insert(
-				id.to_string(),
+				id,
 				PlayerProfile {
 					bankroll: self.default_bankroll,
 				},
@@ -121,20 +134,22 @@ impl Bank {
 	}
 
 	pub fn register(&mut self, id: &str, bankroll: f32) {
+		let id = normalize_id(id);
 		self.profiles.insert(
-			id.to_string(),
+			id.clone(),
 			PlayerProfile { bankroll },
 		);
 		logging::log("Bank", "REGISTER", &format!("{}: ${:.2}", id, bankroll));
 	}
 
 	pub fn debit(&mut self, id: &str, amount: f32) -> Result<(), InsufficientFunds> {
-		self.ensure_exists(id);
-		let profile = self.profiles.get_mut(id).expect("profile exists after ensure_exists");
+		let id = normalize_id(id);
+		self.ensure_exists(&id);
+		let profile = self.profiles.get_mut(&id).expect("profile exists after ensure_exists");
 
 		if profile.bankroll < amount {
 			return Err(InsufficientFunds {
-				player_id: id.to_string(),
+				player_id: id,
 				required: amount,
 				available: profile.bankroll,
 			});
@@ -146,30 +161,35 @@ impl Bank {
 	}
 
 	pub fn credit(&mut self, id: &str, amount: f32) {
-		self.ensure_exists(id);
-		let profile = self.profiles.get_mut(id).expect("profile exists after ensure_exists");
+		let id = normalize_id(id);
+		self.ensure_exists(&id);
+		let profile = self.profiles.get_mut(&id).expect("profile exists after ensure_exists");
 		profile.bankroll += amount;
 		logging::log("Bank", "CREDIT", &format!("{}: +${:.2} (bal: ${:.2})", id, amount, profile.bankroll));
 	}
 
 	pub fn buyin(&mut self, id: &str, amount: f32, table_id: &str) -> Result<(), InsufficientFunds> {
-		self.debit(id, amount)?;
+		let id = normalize_id(id);
+		self.debit(&id, amount)?;
 		logging::log("Bank", "BUYIN", &format!("{}: ${:.2} for table {}", id, amount, table_id));
 		Ok(())
 	}
 
 	pub fn cashout(&mut self, id: &str, amount: f32, table_id: &str) {
-		self.credit(id, amount);
+		let id = normalize_id(id);
+		self.credit(&id, amount);
 		logging::log("Bank", "CASHOUT", &format!("{}: ${:.2} from table {}", id, amount, table_id));
 	}
 
 	pub fn award_prize(&mut self, id: &str, amount: f32, place: usize) {
-		self.credit(id, amount);
+		let id = normalize_id(id);
+		self.credit(&id, amount);
 		logging::log("Bank", "PRIZE", &format!("{}: ${:.2} ({})", id, amount, ordinal(place)));
 	}
 
 	pub fn profile_exists(&self, id: &str) -> bool {
-		self.profiles.contains_key(id)
+		let id = normalize_id(id);
+		self.profiles.contains_key(&id)
 	}
 
 	pub fn list_players(&self) -> Vec<(&str, &PlayerProfile)> {
@@ -324,5 +344,16 @@ mod tests {
 		assert!(msg.contains("alice"));
 		assert!(msg.contains("500"));
 		assert!(msg.contains("100"));
+	}
+
+	#[test]
+	fn test_case_insensitive_ids() {
+		let mut bank = test_bank();
+		bank.credit("Alice", 500.0);
+		assert_eq!(bank.get_bankroll("alice"), 1500.0);
+		assert_eq!(bank.get_bankroll("ALICE"), 1500.0);
+		assert_eq!(bank.get_bankroll("Alice"), 1500.0);
+		assert!(bank.profile_exists("alice"));
+		assert!(bank.profile_exists("ALICE"));
 	}
 }
