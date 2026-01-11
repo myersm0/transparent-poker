@@ -332,6 +332,63 @@ pub fn calculate_payouts(buy_in: f32, num_players: usize, payout_percentages: &[
 	payout_percentages.iter().map(|p| prize_pool * p).collect()
 }
 
+pub fn build_info_lines(table: &TableConfig, num_players: usize, seed: Option<u64>) -> Vec<String> {
+	let mut lines = vec![
+		format!("Format: {}", table.format),
+		format!("Betting: {}", table.betting),
+		String::new(),
+	];
+
+	match table.format {
+		GameFormat::Cash => {
+			if let (Some(sb), Some(bb)) = (table.small_blind, table.big_blind) {
+				lines.push(format!("Blinds: ${:.0}/${:.0}", sb, bb));
+			}
+			if let Some(min) = table.min_buy_in {
+				lines.push(format!("Min Buy-in: ${:.0}", min));
+			}
+			if let Some(max) = table.max_buy_in {
+				lines.push(format!("Max Buy-in: ${:.0}", max));
+			}
+			lines.push(String::new());
+			lines.push(format!("Players: {}", num_players));
+			if table.rake_percent > 0.0 {
+				let rake_str = if let Some(cap) = table.rake_cap {
+					format!("Rake: {:.1}% (${:.0} cap)", table.rake_percent * 100.0, cap)
+				} else {
+					format!("Rake: {:.1}%", table.rake_percent * 100.0)
+				};
+				lines.push(rake_str);
+			}
+		}
+		GameFormat::SitNGo => {
+			if let Some(buyin) = table.buy_in {
+				lines.push(format!("Buy-in: ${:.0}", buyin));
+			}
+			if let Some(stack) = table.starting_stack {
+				lines.push(format!("Starting Stack: ${:.0}", stack));
+			}
+			lines.push(String::new());
+			lines.push(format!("Players: {}", num_players));
+			if let (Some(payouts), Some(buyin)) = (&table.payouts, table.buy_in) {
+				let prize_pool = buyin * num_players as f32;
+				let payout_strs: Vec<String> = payouts
+					.iter()
+					.map(|p| format!("${:.0}", (prize_pool * p).round()))
+					.collect();
+				lines.push(format!("Payouts: {}", payout_strs.join(", ")));
+			}
+		}
+	}
+
+	if let Some(s) = seed {
+		lines.push(String::new());
+		lines.push(format!("Seed: {}", s));
+	}
+
+	lines
+}
+
 #[cfg(test)]
 mod tests {
 	use super::*;

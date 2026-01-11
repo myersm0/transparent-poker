@@ -45,6 +45,8 @@ pub enum LobbyEvent {
 	},
 	NetworkGameStarted {
 		seat: Seat,
+		table_config: TableConfig,
+		num_players: usize,
 	},
 	Error(String),
 	LeftTable,
@@ -399,6 +401,8 @@ pub struct NetworkBackend {
 	game_started: bool,
 	username: Option<String>,
 	bankroll: f32,
+	tables: Vec<TableInfo>,
+	lobby_players: Vec<LobbyPlayer>,
 }
 
 impl NetworkBackend {
@@ -410,6 +414,8 @@ impl NetworkBackend {
 			game_started: false,
 			username: None,
 			bankroll: 0.0,
+			tables: Vec::new(),
+			lobby_players: Vec::new(),
 		}
 	}
 
@@ -437,13 +443,15 @@ impl NetworkBackend {
 		while let Some(msg) = self.client.try_recv() {
 			match msg {
 				ServerMessage::LobbyState { tables } => {
+					self.tables = tables.clone();
 					let summaries = tables.into_iter().map(|t| t.into()).collect();
 					self.emit(LobbyEvent::TablesListed(summaries));
 				}
 
 				ServerMessage::TableJoined { table_id, table_name, seat, players, min_players, max_players } => {
 					self.my_seat = Some(seat);
-					let lobby_players = players.into_iter().map(|p| p.into()).collect();
+					let lobby_players: Vec<LobbyPlayer> = players.into_iter().map(|p| p.into()).collect();
+					self.lobby_players = lobby_players.clone();
 					self.emit(LobbyEvent::TableJoined {
 						table_id,
 						table_name,
@@ -455,6 +463,16 @@ impl NetworkBackend {
 				}
 
 				ServerMessage::PlayerJoinedTable { seat, username } => {
+					self.lobby_players.push(LobbyPlayer {
+						seat: Some(seat),
+						id: username.to_lowercase(),
+						name: username.clone(),
+						is_host: false,
+						is_human: true,
+						is_ready: false,
+						strategy: None,
+						bankroll: None,
+					});
 					self.emit(LobbyEvent::PlayerJoined {
 						seat,
 						username,
@@ -463,6 +481,7 @@ impl NetworkBackend {
 				}
 
 				ServerMessage::PlayerLeftTable { seat, .. } => {
+					self.lobby_players.retain(|p| p.seat != Some(seat));
 					self.emit(LobbyEvent::PlayerLeft { seat });
 				}
 
@@ -471,6 +490,16 @@ impl NetworkBackend {
 				}
 
 				ServerMessage::AIAdded { seat, name } => {
+					self.lobby_players.push(LobbyPlayer {
+						seat: Some(seat),
+						id: name.to_lowercase(),
+						name: name.clone(),
+						is_host: false,
+						is_human: false,
+						is_ready: true,
+						strategy: None,
+						bankroll: None,
+					});
 					self.emit(LobbyEvent::PlayerJoined {
 						seat,
 						username: name,
@@ -479,13 +508,19 @@ impl NetworkBackend {
 				}
 
 				ServerMessage::AIRemoved { seat } => {
+					self.lobby_players.retain(|p| p.seat != Some(seat));
 					self.emit(LobbyEvent::PlayerLeft { seat });
 				}
 
-				ServerMessage::GameStarting { .. } => {
+				ServerMessage::GameStarting { table_config, .. } => {
 					self.game_started = true;
+					let num_players = self.lobby_players.len();
 					if let Some(seat) = self.my_seat {
-						self.emit(LobbyEvent::NetworkGameStarted { seat });
+						self.emit(LobbyEvent::NetworkGameStarted {
+							seat,
+							table_config,
+							num_players,
+						});
 					} else {
 						self.emit(LobbyEvent::GameStarting);
 					}
@@ -494,6 +529,7 @@ impl NetworkBackend {
 
 				ServerMessage::TableLeft => {
 					self.my_seat = None;
+					self.lobby_players.clear();
 					self.emit(LobbyEvent::LeftTable);
 				}
 
@@ -545,8 +581,10 @@ impl LobbyBackend for NetworkBackend {
 		}
 	}
 
-	fn table_config(&self, _table_id: &str) -> Option<TableConfig> {
-		None
+	fn table_config(&self, table_id: &str) -> Option<TableConfig> {
+		self.tables.iter()
+			.find(|t| t.id == table_id)
+			.map(|t| t.config.clone())
 	}
 
 	fn get_bankroll(&self, _player_id: &str) -> f32 {

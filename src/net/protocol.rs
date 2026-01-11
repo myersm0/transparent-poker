@@ -1,5 +1,6 @@
 use serde::{Deserialize, Serialize};
 use crate::events::{GameEvent, PlayerAction, Seat, ValidActions};
+use crate::table::TableConfig;
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(tag = "type", rename_all = "snake_case")]
@@ -71,6 +72,7 @@ pub enum ServerMessage {
 	},
 	GameStarting {
 		countdown: u32,
+		table_config: TableConfig,
 	},
 	GameEvent(GameEvent),
 	ActionRequest {
@@ -90,6 +92,7 @@ pub struct TableInfo {
 	pub players: usize,
 	pub max_players: usize,
 	pub status: TableStatus,
+	pub config: TableConfig,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
@@ -219,14 +222,47 @@ mod tests {
 
 	#[test]
 	fn test_roundtrip_server_message() {
-		let original = ServerMessage::GameStarting { countdown: 5 };
+		use crate::table::{BettingStructure, GameFormat};
+
+		let table_config = TableConfig {
+			id: "test".to_string(),
+			name: "Test Table".to_string(),
+			format: GameFormat::Cash,
+			betting: BettingStructure::NoLimit,
+			small_blind: Some(1.0),
+			big_blind: Some(2.0),
+			min_buy_in: Some(40.0),
+			max_buy_in: Some(200.0),
+			buy_in: None,
+			starting_stack: None,
+			min_players: 2,
+			max_players: 6,
+			max_raises: 4,
+			payouts: None,
+			blind_clock: None,
+			rake_percent: 0.0,
+			rake_cap: None,
+			no_flop_no_drop: false,
+			action_timeout_seconds: None,
+			max_consecutive_timeouts: None,
+			action_delay_ms: 500,
+			street_delay_ms: 700,
+			hand_end_delay_ms: 2000,
+			seed: None,
+		};
+
+		let original = ServerMessage::GameStarting {
+			countdown: 5,
+			table_config: table_config.clone(),
+		};
 		let encoded = encode_message(&original);
 		let json = std::str::from_utf8(&encoded[4..]).unwrap();
 		let decoded: ServerMessage = serde_json::from_str(json).unwrap();
 
 		match decoded {
-			ServerMessage::GameStarting { countdown } => {
+			ServerMessage::GameStarting { countdown, table_config: config } => {
 				assert_eq!(countdown, 5);
+				assert_eq!(config.name, "Test Table");
 			}
 			_ => panic!("Wrong message type"),
 		}
@@ -234,6 +270,35 @@ mod tests {
 
 	#[test]
 	fn test_table_status_serialization() {
+		use crate::table::{BettingStructure, GameFormat};
+
+		let config = TableConfig {
+			id: "test".to_string(),
+			name: "Test".to_string(),
+			format: GameFormat::Cash,
+			betting: BettingStructure::NoLimit,
+			small_blind: Some(1.0),
+			big_blind: Some(2.0),
+			min_buy_in: Some(40.0),
+			max_buy_in: Some(200.0),
+			buy_in: None,
+			starting_stack: None,
+			min_players: 2,
+			max_players: 6,
+			max_raises: 4,
+			payouts: None,
+			blind_clock: None,
+			rake_percent: 0.0,
+			rake_cap: None,
+			no_flop_no_drop: false,
+			action_timeout_seconds: None,
+			max_consecutive_timeouts: None,
+			action_delay_ms: 500,
+			street_delay_ms: 700,
+			hand_end_delay_ms: 2000,
+			seed: None,
+		};
+
 		let info = TableInfo {
 			id: "test".to_string(),
 			name: "Test".to_string(),
@@ -244,6 +309,7 @@ mod tests {
 			players: 3,
 			max_players: 6,
 			status: TableStatus::InProgress,
+			config,
 		};
 		let json = serde_json::to_string(&info).unwrap();
 

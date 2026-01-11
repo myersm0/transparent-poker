@@ -195,6 +195,7 @@ impl TableRoom {
 			players: self.player_count(),
 			max_players: self.config.max_players,
 			status: self.status,
+			config: self.config.clone(),
 		}
 	}
 
@@ -705,7 +706,16 @@ fn process_message(
 						if let Some(table) = tables_lock.get_mut(&tid) {
 							table.status = TableStatus::InProgress;
 						}
-						let starting_msg = ServerMessage::GameStarting { countdown: 3 };
+
+						// Send GameStarting with the table config
+						let table_config = tables_lock.get(&tid)
+							.map(|t| t.config.clone())
+							.unwrap_or_else(|| panic!("Table {} not found", tid));
+
+						let starting_msg = ServerMessage::GameStarting {
+							countdown: 3,
+							table_config,
+						};
 						broadcast_to_table(&tid, &starting_msg, &mut tables_lock, &mut conns);
 
 						// Broadcast updated lobby state so table select shows "In Progress"

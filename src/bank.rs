@@ -19,7 +19,7 @@ struct ProfilesFile {
 }
 
 fn default_bankroll() -> f32 {
-	10000.0
+	1000.0
 }
 
 impl Default for ProfilesFile {

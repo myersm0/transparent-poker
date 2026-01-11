@@ -69,6 +69,8 @@ pub enum MenuResult {
 	},
 	NetworkGameStarted {
 		seat: Seat,
+		table_config: TableConfig,
+		num_players: usize,
 	},
 	Quit,
 }
@@ -135,7 +137,7 @@ impl<B: LobbyBackend> Menu<B> {
 				LobbyEvent::TablesListed(tables) => {
 					self.tables = tables;
 					self.sorted_indices = (0..self.tables.len()).collect();
-					self.apply_sort();
+					self.apply_sort_preserve_selection();
 				}
 				LobbyEvent::TableJoined { table_id, table_name, players, min_players, max_players, .. } => {
 					self.current_table_id = Some(table_id);
@@ -170,8 +172,8 @@ impl<B: LobbyBackend> Menu<B> {
 				LobbyEvent::GameReady { table, players } => {
 					return Some(MenuResult::StartGame { table, players });
 				}
-				LobbyEvent::NetworkGameStarted { seat } => {
-					return Some(MenuResult::NetworkGameStarted { seat });
+				LobbyEvent::NetworkGameStarted { seat, table_config, num_players } => {
+					return Some(MenuResult::NetworkGameStarted { seat, table_config, num_players });
 				}
 				LobbyEvent::Error(msg) => {
 					self.error_message = Some(msg);
@@ -187,7 +189,7 @@ impl<B: LobbyBackend> Menu<B> {
 		None
 	}
 
-	fn apply_sort(&mut self) {
+	fn apply_sort_indices(&mut self) {
 		self.sorted_indices = (0..self.tables.len()).collect();
 
 		match self.sort_mode {
@@ -218,9 +220,36 @@ impl<B: LobbyBackend> Menu<B> {
 				});
 			}
 		}
+	}
 
+	fn apply_sort(&mut self) {
+		self.apply_sort_indices();
 		if !self.sorted_indices.is_empty() {
 			self.table_list_state.select(Some(1)); // Skip header row
+		}
+	}
+
+	fn apply_sort_preserve_selection(&mut self) {
+		let current_table_id = self.selected_table_index().map(|idx| self.tables[idx].id.clone());
+		self.apply_sort_indices();
+
+		// Try to restore selection to same table
+		if let Some(id) = current_table_id {
+			if let Some(new_display_idx) = self.sorted_indices.iter()
+				.position(|&idx| self.tables[idx].id == id)
+				.map(|i| i + 1)
+			{
+				self.table_list_state.select(Some(new_display_idx));
+				return;
+			}
+		}
+
+		// Fallback: keep selection in bounds
+		if let Some(current) = self.table_list_state.selected() {
+			let max = self.sorted_indices.len();
+			if current > max {
+				self.table_list_state.select(Some(max.max(1)));
+			}
 		}
 	}
 
@@ -394,7 +423,6 @@ impl<B: LobbyBackend> Menu<B> {
 			.split(area);
 
 		let host_bankroll = self.backend.get_bankroll(&self.host_id);
-
 		let player_info = if host_bankroll > 0.0 {
 			format!("Player: {}  Bankroll: ${:.0}", self.host_id, host_bankroll)
 		} else {
@@ -434,7 +462,7 @@ impl<B: LobbyBackend> Menu<B> {
 				Style::default().fg(self.theme.menu_title()).add_modifier(Modifier::BOLD),
 			),
 			Span::styled(
-				" Players",
+				"Players",
 				Style::default().fg(self.theme.menu_title()).add_modifier(Modifier::BOLD),
 			),
 		]);
@@ -463,7 +491,7 @@ impl<B: LobbyBackend> Menu<B> {
 				};
 				let line = Line::from(vec![
 					Span::styled(
-						format!("{:<24}", truncate_str(&t.name, 24)),
+						format!("{:<24}", truncate_str(&t.name, 23)),
 						Style::default().fg(self.theme.menu_text()),
 					),
 					Span::styled(

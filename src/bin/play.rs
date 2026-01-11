@@ -27,7 +27,7 @@ use transparent_poker::lobby::{LocalBackend, LobbyPlayer, NetworkBackend};
 use transparent_poker::menu::{Menu, MenuResult};
 use transparent_poker::net::{GameClient, GameServer, ServerMessage};
 use transparent_poker::players::{ActionRequest, PlayerResponse, RulesPlayer, TerminalPlayer};
-use transparent_poker::table::{load_tables, BlindClock, GameFormat, TableConfig};
+use transparent_poker::table::{load_tables, build_info_lines, BlindClock, GameFormat, TableConfig};
 use transparent_poker::theme::Theme;
 use transparent_poker::tui::{GameUI, GameUIAction, InputEffect, InputState, TableWidget};
 use transparent_poker::view::TableView;
@@ -170,63 +170,6 @@ struct WinnerInfo {
 	amount: f32,
 	description: Option<String>,
 	awarded_at: Instant,
-}
-
-fn build_info_lines(table: &TableConfig, num_players: usize, seed: Option<u64>) -> Vec<String> {
-	let mut lines = vec![
-		format!("Format: {}", table.format),
-		format!("Betting: {}", table.betting),
-		String::new(),
-	];
-
-	match table.format {
-		GameFormat::Cash => {
-			if let (Some(sb), Some(bb)) = (table.small_blind, table.big_blind) {
-				lines.push(format!("Blinds: ${:.0}/${:.0}", sb, bb));
-			}
-			if let Some(min) = table.min_buy_in {
-				lines.push(format!("Min Buy-in: ${:.0}", min));
-			}
-			if let Some(max) = table.max_buy_in {
-				lines.push(format!("Max Buy-in: ${:.0}", max));
-			}
-			lines.push(String::new());
-			lines.push(format!("Players: {}", num_players));
-			if table.rake_percent > 0.0 {
-				let rake_str = if let Some(cap) = table.rake_cap {
-					format!("Rake: {:.1}% (${:.0} cap)", table.rake_percent * 100.0, cap)
-				} else {
-					format!("Rake: {:.1}%", table.rake_percent * 100.0)
-				};
-				lines.push(rake_str);
-			}
-		}
-		GameFormat::SitNGo => {
-			if let Some(buyin) = table.buy_in {
-				lines.push(format!("Buy-in: ${:.0}", buyin));
-			}
-			if let Some(stack) = table.starting_stack {
-				lines.push(format!("Starting Stack: ${:.0}", stack));
-			}
-			lines.push(String::new());
-			lines.push(format!("Players: {}", num_players));
-			if let (Some(payouts), Some(buyin)) = (&table.payouts, table.buy_in) {
-				let prize_pool = buyin * num_players as f32;
-				let payout_strs: Vec<String> = payouts
-					.iter()
-					.map(|p| format!("${:.0}", (prize_pool * p).round()))
-					.collect();
-				lines.push(format!("Payouts: {}", payout_strs.join(", ")));
-			}
-		}
-	}
-
-	if let Some(s) = seed {
-		lines.push(String::new());
-		lines.push(format!("Seed: {}", s));
-	}
-
-	lines
 }
 
 // ============================================================================
@@ -584,9 +527,9 @@ fn cmd_play_network(player: Option<String>, theme: Option<String>, addr: &str) -
 			execute!(terminal.backend_mut(), LeaveAlternateScreen)?;
 			Ok(())
 		}
-		Ok(MenuResult::NetworkGameStarted { seat }) => {
+		Ok(MenuResult::NetworkGameStarted { seat, table_config, num_players }) => {
 			let mut client = menu.into_backend().into_client();
-			run_network_game(&mut terminal, &mut client, seat, &username, theme, theme_name)?;
+			run_network_game(&mut terminal, &mut client, seat, &username, theme, theme_name, table_config, num_players)?;
 			disable_raw_mode()?;
 			execute!(terminal.backend_mut(), LeaveAlternateScreen)?;
 			Ok(())
@@ -611,8 +554,15 @@ fn run_network_game(
 	username: &str,
 	theme: Theme,
 	theme_name: String,
+	table_config: TableConfig,
+	num_players: usize,
 ) -> io::Result<()> {
+	let table_info_str = format!("{} {}", table_config.betting, table_config.format);
+	let info_lines = build_info_lines(&table_config, num_players, table_config.seed);
+	let table_name = table_config.name.clone();
+
 	let mut game_ui = GameUI::new(None, theme.clone(), theme_name.clone());
+	game_ui.set_table_info(table_name.clone(), table_info_str.clone(), info_lines.clone());
 	let mut game_seat: Option<Seat> = None;
 
 	loop {
@@ -628,6 +578,7 @@ fn run_network_game(
 							if let Some(seat) = found_seat {
 								game_seat = Some(seat);
 								game_ui = GameUI::new(Some(seat), theme.clone(), theme_name.clone());
+								game_ui.set_table_info(table_name.clone(), table_info_str.clone(), info_lines.clone());
 							}
 						}
 					}
