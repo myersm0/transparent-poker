@@ -328,6 +328,14 @@ fn handle_connection(
 			if let Some(table) = tables.get_mut(&tid) {
 				let seat = table.remove_player(conn_id);
 				let active = table.active_game.is_some();
+				let no_humans = table.players.is_empty();
+
+				// If no humans left and game hasn't started, reset table
+				if no_humans && table.status == TableStatus::Waiting {
+					table.ai_players.clear();
+					table.ready.clear();
+				}
+
 				(seat, active)
 			} else {
 				(None, false)
@@ -346,6 +354,10 @@ fn handle_connection(
 				});
 				broadcast_to_table(&tid, &game_event, &mut tables.lock().unwrap(), &mut connections.lock().unwrap());
 			}
+
+			// Broadcast updated lobby state
+			let table_list = build_table_list(&tables.lock().unwrap());
+			broadcast_lobby_state(&table_list, &mut connections.lock().unwrap());
 		}
 	}
 
@@ -475,26 +487,41 @@ fn process_message(
 
 			let table_id = conns.get(&conn_id).and_then(|c| c.current_table.clone());
 			if let Some(tid) = table_id {
-				if let Some(table) = tables_lock.get_mut(&tid) {
-					if let Some(seat) = table.remove_player(conn_id) {
-						let username = conns.get(&conn_id)
-							.and_then(|c| c.username.clone())
-							.unwrap_or_else(|| "Unknown".to_string());
-
-						// Notify the leaving player first
-						if let Some(conn) = conns.get_mut(&conn_id) {
-							conn.send(&ServerMessage::TableLeft);
+				let (removed_seat, username) = {
+					if let Some(table) = tables_lock.get_mut(&tid) {
+						if let Some(seat) = table.remove_player(conn_id) {
+							let username = conns.get(&conn_id)
+								.and_then(|c| c.username.clone())
+								.unwrap_or_else(|| "Unknown".to_string());
+							// If no humans left and game hasn't started, reset table
+							if table.players.is_empty() && table.status == TableStatus::Waiting {
+								table.ai_players.clear();
+								table.ready.clear();
+							}
+							(Some(seat), username)
+						} else {
+							(None, String::new())
 						}
-
-						// Then notify others at the table
-						let msg = ServerMessage::PlayerLeftTable { seat, username };
-						broadcast_to_table(&tid, &msg, &mut tables_lock, &mut conns);
-
-						// Broadcast updated lobby state to all connected clients
-						let table_list = build_table_list(&tables_lock);
-						broadcast_lobby_state(&table_list, &mut conns);
+					} else {
+						(None, String::new())
 					}
+				};
+
+				if let Some(seat) = removed_seat {
+					// Notify the leaving player first
+					if let Some(conn) = conns.get_mut(&conn_id) {
+						conn.send(&ServerMessage::TableLeft);
+					}
+
+					// Then notify others at the table
+					let msg = ServerMessage::PlayerLeftTable { seat, username };
+					broadcast_to_table(&tid, &msg, &mut tables_lock, &mut conns);
+
+					// Broadcast updated lobby state to all connected clients
+					let table_list = build_table_list(&tables_lock);
+					broadcast_lobby_state(&table_list, &mut conns);
 				}
+
 				if let Some(conn) = conns.get_mut(&conn_id) {
 					conn.current_table = None;
 				}
@@ -573,6 +600,10 @@ fn process_message(
 
 							let error_msg = ServerMessage::Error { message: msg };
 							broadcast_to_table(&tid, &error_msg, &mut tables_lock, &mut conns);
+
+							// Broadcast updated lobby state
+							let table_list = build_table_list(&tables_lock);
+							broadcast_lobby_state(&table_list, &mut conns);
 							return;
 						}
 
@@ -587,6 +618,10 @@ fn process_message(
 						}
 						let starting_msg = ServerMessage::GameStarting { countdown: 3 };
 						broadcast_to_table(&tid, &starting_msg, &mut tables_lock, &mut conns);
+
+						// Broadcast updated lobby state so table select shows "In Progress"
+						let table_list = build_table_list(&tables_lock);
+						broadcast_lobby_state(&table_list, &mut conns);
 
 						// Collect info for game start
 						let game_info: Option<GameStartInfo> = {

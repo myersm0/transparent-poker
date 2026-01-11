@@ -12,6 +12,7 @@ use ratatui::{
 
 use crate::events::Seat;
 use crate::lobby::{LobbyBackend, LobbyCommand, LobbyEvent, LobbyPlayer, TableSummary};
+use crate::net::protocol::TableStatus;
 use crate::table::TableConfig;
 use crate::theme::Theme;
 
@@ -405,17 +406,26 @@ impl<B: LobbyBackend> Menu<B> {
 			.iter()
 			.map(|&idx| {
 				let t = &self.tables[idx];
+				let (status_text, status_color) = match t.status {
+					TableStatus::Waiting => ("Open", self.theme.stack()),
+					TableStatus::InProgress => ("In Progress", self.theme.bet()),
+					TableStatus::Finished => ("Finished", self.theme.menu_unselected()),
+				};
 				let line = Line::from(vec![
 					Span::styled(
 						format!("{:<24}", t.name),
 						Style::default().fg(self.theme.menu_text()),
 					),
 					Span::styled(
-						format!("{:<12}", t.format),
+						format!("{:<12}", status_text),
+						Style::default().fg(status_color),
+					),
+					Span::styled(
+						format!("{:<10}", t.format),
 						Style::default().fg(self.theme.menu_unselected()),
 					),
 					Span::styled(
-						format!("{:<12}", t.betting),
+						format!("{:<10}", t.betting),
 						Style::default().fg(self.theme.menu_highlight()),
 					),
 					Span::styled(
