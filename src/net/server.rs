@@ -28,18 +28,22 @@ impl Connection {
 	}
 }
 
+use std::sync::atomic::{AtomicBool, Ordering};
+
 struct ActiveGame {
 	action_senders: HashMap<Seat, mpsc::Sender<PlayerAction>>,
 	conn_to_seat: HashMap<ConnectionId, Seat>,
 	sitting_out: Arc<Mutex<std::collections::HashSet<Seat>>>,
+	game_finished: Arc<AtomicBool>,
 }
 
 impl ActiveGame {
-	fn new(sitting_out: Arc<Mutex<std::collections::HashSet<Seat>>>) -> Self {
+	fn new(sitting_out: Arc<Mutex<std::collections::HashSet<Seat>>>, game_finished: Arc<AtomicBool>) -> Self {
 		Self {
 			action_senders: HashMap::new(),
 			conn_to_seat: HashMap::new(),
 			sitting_out,
+			game_finished,
 		}
 	}
 
@@ -62,6 +66,10 @@ impl ActiveGame {
 		let seat = self.conn_to_seat.get(&conn_id).ok_or("Player not in game")?;
 		let tx = self.action_senders.get(seat).ok_or("No action channel for seat")?;
 		tx.send(action).map_err(|_| "Failed to send action".to_string())
+	}
+
+	fn is_finished(&self) -> bool {
+		self.game_finished.load(Ordering::SeqCst)
 	}
 }
 
@@ -398,15 +406,25 @@ fn process_message(
 		}
 
 		ClientMessage::ListTables => {
+			// First, cleanup any finished games
+			let any_cleaned = {
+				let mut tables_lock = tables.lock().unwrap();
+				cleanup_finished_games(&mut tables_lock)
+			};
+
 			let tables_lock = tables.lock().unwrap();
-			let mut table_list: Vec<(usize, TableInfo)> = tables_lock.values()
-				.map(|t| (t.order, t.to_info()))
-				.collect();
-			table_list.sort_by_key(|(order, _)| *order);
-			let table_list: Vec<TableInfo> = table_list.into_iter().map(|(_, info)| info).collect();
+			let table_list = build_table_list(&tables_lock);
+			drop(tables_lock);
+
 			let mut conns = connections.lock().unwrap();
-			if let Some(conn) = conns.get_mut(&conn_id) {
-				conn.send(&ServerMessage::LobbyState { tables: table_list });
+			if any_cleaned {
+				// Broadcast to all lobby clients since status changed
+				broadcast_lobby_state(&table_list, &mut conns);
+			} else {
+				// Just send to requesting client
+				if let Some(conn) = conns.get_mut(&conn_id) {
+					conn.send(&ServerMessage::LobbyState { tables: table_list });
+				}
 			}
 		}
 
@@ -417,6 +435,29 @@ fn process_message(
 			let username = conns.get(&conn_id)
 				.and_then(|c| c.username.clone())
 				.unwrap_or_else(|| "Anonymous".to_string());
+
+			// Cleanup finished game if applicable
+			let mut cleaned_up = false;
+			if let Some(table) = tables_lock.get_mut(&table_id) {
+				if table.status == TableStatus::InProgress {
+					if let Some(ref game) = table.active_game {
+						if game.is_finished() {
+							table.status = TableStatus::Waiting;
+							table.players.clear();
+							table.ai_players.clear();
+							table.ready.clear();
+							table.active_game = None;
+							cleaned_up = true;
+						}
+					}
+				}
+			}
+
+			if cleaned_up {
+				// Broadcast updated status to all lobby clients
+				let table_list = build_table_list(&tables_lock);
+				broadcast_lobby_state(&table_list, &mut conns);
+			}
 
 			if let Some(table) = tables_lock.get_mut(&table_id) {
 				if table.status != TableStatus::Waiting {
@@ -827,6 +868,25 @@ fn broadcast_to_table_except(
 	}
 }
 
+fn cleanup_finished_games(tables: &mut HashMap<String, TableRoom>) -> bool {
+	let mut any_cleaned = false;
+	for table in tables.values_mut() {
+		if table.status == TableStatus::InProgress {
+			if let Some(ref game) = table.active_game {
+				if game.is_finished() {
+					table.status = TableStatus::Waiting;
+					table.players.clear();
+					table.ai_players.clear();
+					table.ready.clear();
+					table.active_game = None;
+					any_cleaned = true;
+				}
+			}
+		}
+	}
+	any_cleaned
+}
+
 fn build_table_list(tables: &HashMap<String, TableRoom>) -> Vec<TableInfo> {
 	let mut table_list: Vec<(usize, TableInfo)> = tables.values()
 		.map(|t| (t.order, t.to_info()))
@@ -854,7 +914,8 @@ fn start_game(info: GameStartInfo, bank: Arc<Mutex<Bank>>) -> ActiveGame {
 	let runner_config = build_runner_config(&info.config);
 	let (mut runner, game_handle) = GameRunner::new(runner_config, runtime_handle.clone());
 
-	let mut active_game = ActiveGame::new(Arc::clone(&game_handle.sitting_out));
+	let game_finished = Arc::new(AtomicBool::new(false));
+	let mut active_game = ActiveGame::new(Arc::clone(&game_handle.sitting_out), Arc::clone(&game_finished));
 
 	// Load strategies for AI players
 	let strategies = load_strategies_auto().unwrap_or_default();
@@ -922,6 +983,7 @@ fn start_game(info: GameStartInfo, bank: Arc<Mutex<Bank>>) -> ActiveGame {
 	});
 
 	// Forward events to all players with filtering and pacing
+	let game_finished_clone = Arc::clone(&game_finished);
 	thread::spawn(move || {
 		while let Ok(event) = game_handle.event_rx.recv() {
 			for (seat, stream) in &player_streams {
@@ -979,6 +1041,9 @@ fn start_game(info: GameStartInfo, bank: Arc<Mutex<Bank>>) -> ActiveGame {
 				if let Err(e) = bank_lock.save() {
 					eprintln!("Failed to save bank after game end: {}", e);
 				}
+
+				// Signal that the game has finished
+				game_finished_clone.store(true, Ordering::SeqCst);
 			}
 
 			// Use delays from table config
