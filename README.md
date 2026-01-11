@@ -10,7 +10,7 @@
 A Texas Hold'em game built for transparency: no ads, in-game purchases, or distractions. Just serious poker with a fully open source codebase.
 
 <p align="left">
-  <img src="assets/dracula.png" width="700">
+  <img src="assets/screenshot.png" width="800">
 </p>
 
 ## What this is
