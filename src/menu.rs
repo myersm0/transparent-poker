@@ -103,7 +103,7 @@ pub struct Menu<B: LobbyBackend> {
 impl<B: LobbyBackend> Menu<B> {
 	pub fn new(backend: B, host_id: String, theme: Theme) -> Self {
 		let mut table_list_state = ListState::default();
-		table_list_state.select(Some(0));
+		table_list_state.select(Some(1)); // Start at 1 to skip header row
 
 		Self {
 			backend,
@@ -220,7 +220,7 @@ impl<B: LobbyBackend> Menu<B> {
 		}
 
 		if !self.sorted_indices.is_empty() {
-			self.table_list_state.select(Some(0));
+			self.table_list_state.select(Some(1)); // Skip header row
 		}
 	}
 
@@ -236,7 +236,12 @@ impl<B: LobbyBackend> Menu<B> {
 
 	fn selected_table_index(&self) -> Option<usize> {
 		self.table_list_state.selected().and_then(|display_idx| {
-			self.sorted_indices.get(display_idx).copied()
+			// display_idx 0 is header, actual tables start at 1
+			if display_idx == 0 {
+				None
+			} else {
+				self.sorted_indices.get(display_idx - 1).copied()
+			}
 		})
 	}
 
@@ -356,8 +361,9 @@ impl<B: LobbyBackend> Menu<B> {
 		if len == 0 {
 			return;
 		}
-		let current = self.table_list_state.selected().unwrap_or(0) as i32;
-		let new = (current + delta).rem_euclid(len as i32) as usize;
+		// Selection range is 1..=len (0 is header)
+		let current = self.table_list_state.selected().unwrap_or(1) as i32;
+		let new = ((current - 1 + delta).rem_euclid(len as i32) + 1) as usize;
 		self.table_list_state.select(Some(new));
 	}
 
@@ -401,7 +407,41 @@ impl<B: LobbyBackend> Menu<B> {
 			.block(Block::default().borders(Borders::ALL).border_style(Style::default().fg(self.theme.menu_border())));
 		frame.render_widget(header, chunks[0]);
 
-		let items: Vec<ListItem> = self
+		// Column header
+		let header_line = Line::from(vec![
+			Span::styled(
+				format!("{:<24}", "Table"),
+				Style::default().fg(self.theme.menu_title()).add_modifier(Modifier::BOLD),
+			),
+			Span::styled(
+				format!("{:<11}", "Status"),
+				Style::default().fg(self.theme.menu_title()).add_modifier(Modifier::BOLD),
+			),
+			Span::styled(
+				format!("{:<6}", "Type"),
+				Style::default().fg(self.theme.menu_title()).add_modifier(Modifier::BOLD),
+			),
+			Span::styled(
+				format!("{:<7}", "Limit"),
+				Style::default().fg(self.theme.menu_title()).add_modifier(Modifier::BOLD),
+			),
+			Span::styled(
+				format!("{:<10}", "Stakes"),
+				Style::default().fg(self.theme.menu_title()).add_modifier(Modifier::BOLD),
+			),
+			Span::styled(
+				format!("{:<8}", "Buy-in"),
+				Style::default().fg(self.theme.menu_title()).add_modifier(Modifier::BOLD),
+			),
+			Span::styled(
+				"Players",
+				Style::default().fg(self.theme.menu_title()).add_modifier(Modifier::BOLD),
+			),
+		]);
+
+		let mut items: Vec<ListItem> = vec![ListItem::new(header_line)];
+
+		items.extend(self
 			.sorted_indices
 			.iter()
 			.map(|&idx| {
@@ -411,39 +451,48 @@ impl<B: LobbyBackend> Menu<B> {
 					TableStatus::InProgress => ("In Progress", self.theme.bet()),
 					TableStatus::Finished => ("Finished", self.theme.menu_unselected()),
 				};
+				let format_abbrev = match t.format.as_str() {
+					"Sit & Go" => "SnG",
+					other => other,
+				};
+				let betting_abbrev = match t.betting.as_str() {
+					"No-Limit" => "NL",
+					"Pot-Limit" => "PL",
+					"Fixed-Limit" => "Fixed",
+					other => other,
+				};
 				let line = Line::from(vec![
 					Span::styled(
-						format!("{:<24}", t.name),
+						format!("{:<24}", truncate_str(&t.name, 24)),
 						Style::default().fg(self.theme.menu_text()),
 					),
 					Span::styled(
-						format!("{:<12}", status_text),
+						format!("{:<11}", status_text),
 						Style::default().fg(status_color),
 					),
 					Span::styled(
-						format!("{:<10}", t.format),
+						format!("{:<6}", format_abbrev),
 						Style::default().fg(self.theme.menu_unselected()),
 					),
 					Span::styled(
-						format!("{:<10}", t.betting),
+						format!("{:<7}", betting_abbrev),
 						Style::default().fg(self.theme.menu_highlight()),
 					),
 					Span::styled(
-						format!("{:<12}", t.blinds),
+						format!("{:>10}", t.blinds),
 						Style::default().fg(self.theme.menu_highlight()),
 					),
 					Span::styled(
-						format!("{:<10}", t.buy_in),
+						format!("{:>8}", t.buy_in),
 						Style::default().fg(self.theme.bet()),
 					),
 					Span::styled(
-						format!("{}/{}", t.players, t.max_players),
+						format!("{:>3}/{:<3}", t.players, t.max_players),
 						Style::default().fg(self.theme.menu_unselected()),
 					),
 				]);
 				ListItem::new(line)
-			})
-			.collect();
+			}));
 
 		let title = format!(" SELECT TABLE (sort: {}) ", self.sort_mode.label());
 		let list = List::new(items)
@@ -622,5 +671,20 @@ impl<B: LobbyBackend> Menu<B> {
 fn flush_keyboard_buffer() {
 	while event::poll(std::time::Duration::from_millis(0)).unwrap_or(false) {
 		let _ = event::read();
+	}
+}
+
+fn truncate_str(s: &str, max_len: usize) -> String {
+	if s.len() <= max_len {
+		s.to_string()
+	} else if max_len <= 1 {
+		"…".to_string()
+	} else {
+		// Find a safe char boundary
+		let mut end = max_len - 1;
+		while end > 0 && !s.is_char_boundary(end) {
+			end -= 1;
+		}
+		format!("{}…", &s[..end])
 	}
 }
