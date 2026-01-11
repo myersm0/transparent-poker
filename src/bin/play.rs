@@ -34,7 +34,7 @@ use transparent_poker::view::TableView;
 
 #[derive(Parser)]
 #[command(name = "poker")]
-#[command(about = "Transparent poker - play Texas Hold'em against AI opponents")]
+#[command(about = "Transparent Poker")]
 #[command(version)]
 struct Cli {
 	#[command(subcommand)]
