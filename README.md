@@ -5,11 +5,10 @@
 [![CI](https://github.com/myersm0/transparent-poker/actions/workflows/ci.yaml/badge.svg)](https://github.com/myersm0/transparent-poker/actions)
 [![No Gambling](https://img.shields.io/badge/gambling-none-green)]()
 
-**Clean and clear open source poker, online or off.**
 An open source Texas Hold'em game built for transparency: no ads, in-game purchases, or distractions.
 
 <p align="left">
-  <img src="assets/screenshot.png" width="800">
+  <img src="assets/screenshot.png" width="600">
 </p>
 
 ## What this is
