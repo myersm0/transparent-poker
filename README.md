@@ -17,6 +17,7 @@ A Texas Hold'em game built for transparency: no ads, in-game purchases, or distr
 
 This is poker for fun, practice, and competition — not money. There are no real-money stakes here.
 - **Offline play** — Full game with configurable rules-based AI opponents. No account, no internet, no cost.
+- **Online multiplayer** — Host or join games over the network with friends.
 - **Open source** — See exactly how the game works.
 - **Terminal-first** — Fast, lightweight, configurable, runs on any OS.
 - **Reproducible** — Set a seed for deterministic shuffles. Prove fairness, replay scenarios, debug.
@@ -45,6 +46,8 @@ cargo build --release
 ```
 
 ## Usage
+
+### Local play
 ```bash
 poker register alice                         # register yourself as player
 poker play --player=alice                    # start playing
@@ -52,13 +55,23 @@ poker play --player=alice --theme=dracula    # play with the Dracula color schem
 poker play --player=alice --seed=12345       # play using a reproducible seed
 ```
 
+### Network play
+```bash
+# On the server machine
+poker-server --port 9999
+
+# On client machines
+poker play --player=alice --server=host:9999
+```
+
 ## Commands
 ```
-poker play       Start the game
+poker play       Start the game (local or network)
 poker themes     List available color themes
 poker register   Register a new player
 poker players    List all registered players
 poker bankroll   Manage player bankroll
+poker-server     Run a multiplayer game server
 ```
 
 ### Play options
@@ -66,9 +79,10 @@ poker bankroll   Manage player bankroll
 |------|-------------|
 | `-p, --player` | Player name (or set `POKER_USER` env var) |
 | `-t, --theme` | Color theme |
+| `-s, --server` | Connect to network server (host:port) |
 | `--seed` | RNG seed for reproducible games |
 
-### Bankroll Management
+### Bankroll management
 ```bash
 poker bankroll alice show       # check balance
 poker bankroll alice set 5000   # set bankroll to $5000
@@ -86,21 +100,33 @@ poker bankroll alice sub 500    # subtract $500
 | `a` | All-in |
 | `q` | Quit (press twice to confirm) |
 
-## Table selection and game formats
-When you first start the game with `poker play`, you will be presented with a table selection menu. Tables are organized by type of game (cash games first, then tournaments), stakes, and betting structure. Use arrow keys to browse, `enter` to open a lobby, or press `i` to view detailed table settings.
+### Lobby controls
+| Key | Action |
+|-----|--------|
+| `↑/↓` | Navigate tables |
+| `Enter` | Join table / Start game |
+| `i` | View table info |
+| `+/-` | Add/remove AI players |
+| `r` | Toggle ready status |
+| `Esc` | Leave table |
 
-Tables are named after stories by Guy de Maupassant. Lighter tiltes ("Two Friends", "The Country Excursion") at low stakes; darker psychological stories ("The Horla", "The Madwoman") at higher stakes.
+## Table selection and game formats
+When you first start the game with `poker play`, you will be presented with a table selection menu. Tables are organized by type of game (cash games first, then tournaments), stakes, and betting structure. Use arrow keys to browse, `Enter` to open a lobby, or press `i` to view detailed table settings.
 
 You can also configure your own tables in a custom `tables.toml` in your config directory (system-dependent location).
 
 ### Cash games
-Three stake levels ($1/$2, $3/$6, $5/$10), each with fixed-limit, pot-limit, and no-limit variants. Standard rake structure with no-flop-no-drop.
+Five stake levels ($1/$2, $2/$5, $3/$6, $4/$8, $5/$10), each with fixed-limit, pot-limit, and no-limit variants. Standard rake structure with no-flop-no-drop.
+
+When you leave a cash game early, your current stack is credited back to your bankroll.
 
 ### Tournaments
-Sit-n-go format tournaments at $40, $200, and $500 buy-ins, again with all three betting variants. Most tables run 6-10 players with a standard top-3 payout scheme. A few oddballs:
+Sit-n-go format tournaments at $40, $100, $200, $300, and $500 buy-ins, again with all three betting variants. Most tables run 6-10 players with a standard top-3 payout scheme. A few exceptions:
 - ***The Duel*** — heads-up, winner-take-all
 - ***Was It a Dream?*** — 9-10 players, winner-take-all, turbo blinds
 - ***Who Knows?*** — deep stack marathon with unpredictable blind levels
+
+Tournament buy-ins are non-refundable if you leave early.
 
 ## Themes
 Eight built-in themes: `dark`, `light`, `dracula`, `solarized`, `gruvbox`, `nord`, `retro`, `papercolor`.
@@ -128,17 +154,36 @@ Edit `config/players.toml` to customize your opponent roster.
 
 ## Architecture
 ```
-Engine (rs_poker)
-    │
-    ├── emits ──> GameEvent ──> TUI / Logger
-    │
-    └── requests ──> PlayerPort
-                        ├── TerminalPlayer (you)
-                        ├── RulesPlayer (AI)
-                        └── TestPlayer (for tests)
+┌─────────────────────────────────────────────────────────────────┐
+│                         GameRunner                              │
+│                     (engine/runner.rs)                          │
+└───────────────────────────┬─────────────────────────────────────┘
+                            │
+              ┌─────────────┴─────────────┐
+              ▼                           ▼
+        GameEvent                    PlayerPort
+     (events/types.rs)           (players/port.rs)
+              │                           │
+    ┌─────────┼─────────┐       ┌─────────┼─────────┐
+    ▼         ▼         ▼       ▼         ▼         ▼
+  TUI      Logger    Network  Terminal  Rules    Remote
+                     Client   Player    Player   Player
 ```
 
 The engine emits events; renderers consume them. Players implement `PlayerPort` to respond to action requests. This separation allows the same game logic to support terminal, web, or Discord interfaces.
+
+### Key abstractions
+| Module | Purpose |
+|--------|---------|
+| `engine` | Game loop, betting logic, hand evaluation (wraps rs_poker) |
+| `events` | Event types, view transformation |
+| `players` | `PlayerPort` trait and implementations |
+| `lobby` | `LobbyBackend` trait for local/network lobbies |
+| `net` | Client/server protocol, message encoding |
+| `bank` | Bankroll persistence, buy-in/cashout |
+| `strategy` | AI decision-making archetypes |
+
+See [docs/DEVELOPMENT.md](docs/DEVELOPMENT.md) for architecture details.
 
 ## Configuration
 Config files load from user config directory first, falling back to `./config/`:
