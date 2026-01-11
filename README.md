@@ -183,7 +183,7 @@ The engine emits events; renderers consume them. Players implement `PlayerPort` 
 | `bank` | Bankroll persistence, buy-in/cashout |
 | `strategy` | AI decision-making archetypes |
 
-See [docs/DEVELOPMENT.md](docs/DEVELOPMENT.md) for architecture details.
+See [docs/README.md](docs/README.md) for architecture details.
 
 ## Configuration
 Config files load from user config directory first, falling back to `./config/`:
