@@ -6,28 +6,25 @@
 [![No Gambling](https://img.shields.io/badge/gambling-none-green)]()
 
 **Clean and clear open source poker, online or off.**
-
-A Texas Hold'em game built for transparency: no ads, in-game purchases, or distractions. Just serious poker with a fully open source codebase.
+An open source Texas Hold'em game built for transparency: no ads, in-game purchases, or distractions.
 
 <p align="left">
   <img src="assets/screenshot.png" width="800">
 </p>
 
 ## What this is
-
 This is poker for fun, practice, and competition — not money. There are no real-money stakes here.
-- **Offline play** — Full game with configurable rules-based AI opponents. No account, no internet, no cost.
-- **Online multiplayer** — Host or join games over the network with friends.
-- **Open source** — See exactly how the game works.
-- **Terminal-first** — Fast, lightweight, configurable, runs on any OS.
-- **Reproducible** — Set a seed for deterministic shuffles. Prove fairness, replay scenarios, debug.
+- **Offline play** — Full game with configurable rules-based AI opponents.
+- **Online multiplayer** — Host or join games over a network with friends.
+- **Terminal user interface** — Fast, lightweight, configurable, runs on any OS.
+- **Fair** — Uses the ChaCha12 cryptographically secure PRNG algorithm for fair, unpredictable shuffling.
+- **Reproducible** — You can set a seed for deterministic shuffles (e.g. for debugging or to test scenarios)
 
 ## What's coming
-- **Web client** — Play in your browser for hosted multiplayer games
-- **League** — Subscription-based competitive play with advanced AI opponents, rankings, and hand analysis
+- **League** — Subscription-based competitive play with humans and/or advanced AI opponents
 - **Cloud AI** — Premium opponents powered by deep neural networks, with configurable, adaptive play styles (subscription tier only)
 
-The core game will always be free and open. Premium features (online league and advanced AI) fund development and server costs.
+The core game will always be free and open. Premium features (online league and advanced AI) fund development and server costs. More informati
 
 ## Install
 ### macOS / Linux
@@ -38,15 +35,7 @@ curl -fsSL https://raw.githubusercontent.com/myersm0/transparent-poker/main/inst
 ### Windows
 Download the latest release from [GitHub Releases](https://github.com/myersm0/transparent-poker/releases).
 
-### From Source (any platform)
-```bash
-git clone https://github.com/myersm0/transparent-poker.git
-cd transparent-poker
-cargo build --release
-```
-
 ## Usage
-
 ### Local play
 ```bash
 poker register alice                         # register yourself as player
@@ -57,10 +46,10 @@ poker play --player=alice --seed=12345       # play using a reproducible seed
 
 ### Network play
 ```bash
-# On the server machine
+# On the server machine:
 poker-server --port 9999
 
-# On client machines
+# On client machines:
 poker play --player=alice --server=host:9999
 ```
 
@@ -116,12 +105,10 @@ When you first start the game with `poker play`, you will be presented with a ta
 You can also configure your own tables in a custom `tables.toml` in your config directory (system-dependent location).
 
 ### Cash games
-Five stake levels ($1/$2, $2/$5, $3/$6, $4/$8, $5/$10), each with fixed-limit, pot-limit, and no-limit variants. Standard rake structure with no-flop-no-drop.
-
-When you leave a cash game early, your current stack is credited back to your bankroll.
+Cash games are configured at five stake levels each with fixed-limit, pot-limit, and no-limit variants. Standard rake structure with no-flop-no-drop.
 
 ### Tournaments
-Sit-n-go format tournaments at $40, $100, $200, $300, and $500 buy-ins, again with all three betting variants. Most tables run 6-10 players with a standard top-3 payout scheme. A few exceptions:
+Sit-n-go format tournaments at a range of buy-ins, again with all three variants of betting structure. Most tables run 6-10 players with a standard top-3 payout scheme. A few exotic tables are configured, too:
 - ***The Duel*** — heads-up, winner-take-all
 - ***Was It a Dream?*** — 9-10 players, winner-take-all, turbo blinds
 - ***Who Knows?*** — deep stack marathon with unpredictable blind levels
@@ -134,7 +121,6 @@ Eight built-in themes: `dark`, `light`, `dracula`, `solarized`, `gruvbox`, `nord
 ```bash
 poker themes              # List all themes
 poker play -t gruvbox     # Use a specific theme
-POKER_THEME=nord poker play  # Via environment variable
 ```
 
 You can also make custom themes in your config directory's `themes/` folder.
@@ -153,36 +139,6 @@ Opponents use strategy archetypes defined in `config/strategies.toml`:
 Edit `config/players.toml` to customize your opponent roster.
 
 ## Architecture
-```
-┌─────────────────────────────────────────────────────────────────┐
-│                         GameRunner                              │
-│                     (engine/runner.rs)                          │
-└───────────────────────────┬─────────────────────────────────────┘
-                            │
-              ┌─────────────┴─────────────┐
-              ▼                           ▼
-        GameEvent                    PlayerPort
-     (events/types.rs)           (players/port.rs)
-              │                           │
-    ┌─────────┼─────────┐       ┌─────────┼─────────┐
-    ▼         ▼         ▼       ▼         ▼         ▼
-  TUI      Logger    Network  Terminal  Rules    Remote
-                     Client   Player    Player   Player
-```
-
-The engine emits events; renderers consume them. Players implement `PlayerPort` to respond to action requests. This separation allows the same game logic to support terminal, web, or Discord interfaces.
-
-### Key abstractions
-| Module | Purpose |
-|--------|---------|
-| `engine` | Game loop, betting logic, hand evaluation (wraps rs_poker) |
-| `events` | Event types, view transformation |
-| `players` | `PlayerPort` trait and implementations |
-| `lobby` | `LobbyBackend` trait for local/network lobbies |
-| `net` | Client/server protocol, message encoding |
-| `bank` | Bankroll persistence, buy-in/cashout |
-| `strategy` | AI decision-making archetypes |
-
 See [docs/README.md](docs/README.md) for architecture details.
 
 ## Configuration
@@ -202,21 +158,6 @@ Config files load from user config directory first, falling back to `./config/`:
 | `profiles.toml` | Bankrolls (auto-created) |
 | `themes/*.toml` | Custom color themes |
 
-## Logs
-Logs write to your platform's data directory:
-
-| Platform | Log Directory |
-|----------|---------------|
-| Linux | `~/.local/share/transparent-poker/logs/` |
-| macOS | `~/Library/Application Support/transparent-poker/logs/` |
-| Windows | `%APPDATA%\transparent-poker\logs\` |
-
-```
-[14:23:45.100][a1b2c3d4][H3][Engine:HAND] started button=2 players=3
-[14:23:45.123][a1b2c3d4][H3][AI:STRATEGY] Lisa: Premium in BTN
-[14:23:45.124][a1b2c3d4][H3][AI:DECISION] Lisa: RULE → raise $30
-```
 
 ## License
-
 Apache-2.0
