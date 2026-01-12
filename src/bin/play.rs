@@ -261,11 +261,6 @@ fn cmd_play(player: Option<String>, theme: Option<String>, server: Option<String
 			execute!(terminal.backend_mut(), LeaveAlternateScreen)?;
 			Ok(())
 		}
-		Ok(MenuResult::StartGame { .. }) => {
-			disable_raw_mode()?;
-			execute!(terminal.backend_mut(), LeaveAlternateScreen)?;
-			Ok(())
-		}
 		Err(e) => {
 			disable_raw_mode()?;
 			execute!(terminal.backend_mut(), LeaveAlternateScreen)?;

@@ -32,35 +32,6 @@ impl Default for ProfilesFile {
 }
 
 #[derive(Debug)]
-pub enum BankError {
-	InsufficientFunds {
-		player_id: String,
-		required: f32,
-		available: f32,
-	},
-	InvalidAmount(f32),
-}
-
-impl std::fmt::Display for BankError {
-	fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-		match self {
-			BankError::InsufficientFunds { player_id, required, available } => {
-				write!(
-					f,
-					"{} has insufficient funds: needs ${:.2}, has ${:.2}",
-					player_id, required, available
-				)
-			}
-			BankError::InvalidAmount(amount) => {
-				write!(f, "Invalid amount: {}", amount)
-			}
-		}
-	}
-}
-
-impl std::error::Error for BankError {}
-
-#[derive(Debug)]
 pub struct InsufficientFunds {
 	pub player_id: String,
 	pub required: f32,

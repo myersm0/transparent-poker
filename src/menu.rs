@@ -63,10 +63,6 @@ impl SortMode {
 }
 
 pub enum MenuResult {
-	StartGame {
-		table: TableConfig,
-		players: Vec<LobbyPlayer>,
-	},
 	NetworkGameStarted {
 		seat: Seat,
 		table_config: TableConfig,
@@ -169,9 +165,6 @@ impl<B: LobbyBackend> Menu<B> {
 					}
 				}
 				LobbyEvent::GameStarting => {}
-				LobbyEvent::GameReady { table, players } => {
-					return Some(MenuResult::StartGame { table, players });
-				}
 				LobbyEvent::NetworkGameStarted { seat, table_config, num_players } => {
 					return Some(MenuResult::NetworkGameStarted { seat, table_config, num_players });
 				}
@@ -279,10 +272,6 @@ impl<B: LobbyBackend> Menu<B> {
 		count >= self.min_players && count <= self.max_players
 	}
 
-	fn all_ready(&self) -> bool {
-		self.players.iter().all(|p| p.is_ready)
-	}
-
 	pub fn run<Back: Backend>(&mut self, terminal: &mut Terminal<Back>) -> io::Result<MenuResult> {
 		// Flush any stale keyboard input from previous session
 		flush_keyboard_buffer();
@@ -370,9 +359,6 @@ impl<B: LobbyBackend> Menu<B> {
 									KeyCode::Enter => {
 										if self.can_start() {
 											self.backend.send(LobbyCommand::Ready);
-											if self.all_ready() {
-												self.backend.send(LobbyCommand::StartGame);
-											}
 										}
 									}
 									_ => {}

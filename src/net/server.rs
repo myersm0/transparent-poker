@@ -1275,3 +1275,80 @@ fn build_runner_config(table: &TableConfig) -> RunnerConfig {
 		seed: table.seed,
 	}
 }
+
+#[cfg(test)]
+mod tests {
+	use super::*;
+
+	#[test]
+	fn test_try_decode_message_too_short() {
+		let mut buf = vec![0, 0, 0];
+		assert!(try_decode_message(&mut buf).is_none());
+	}
+
+	#[test]
+	fn test_try_decode_message_oversized() {
+		let mut buf = vec![0xFF, 0xFF, 0xFF, 0xFF];
+		assert!(try_decode_message(&mut buf).is_none());
+		assert!(buf.is_empty());
+	}
+
+	#[test]
+	fn test_try_decode_message_incomplete() {
+		let mut buf = vec![0, 0, 0, 10, 1, 2, 3];
+		assert!(try_decode_message(&mut buf).is_none());
+		assert_eq!(buf.len(), 7);
+	}
+
+	#[test]
+	fn test_filter_event_hides_other_hole_cards() {
+		let event = GameEvent::HoleCardsDealt {
+			seat: Seat(0),
+			cards: [
+				Card { rank: 'A', suit: 'h' },
+				Card { rank: 'K', suit: 'h' },
+			],
+		};
+		
+		let filtered = filter_event_for_seat(&event, Seat(1));
+		
+		if let GameEvent::HoleCardsDealt { cards, .. } = filtered {
+			assert_eq!(cards[0].rank, '?');
+			assert_eq!(cards[1].rank, '?');
+		} else {
+			panic!("Expected HoleCardsDealt");
+		}
+	}
+
+	#[test]
+	fn test_filter_event_shows_own_hole_cards() {
+		let event = GameEvent::HoleCardsDealt {
+			seat: Seat(0),
+			cards: [
+				Card { rank: 'A', suit: 'h' },
+				Card { rank: 'K', suit: 'h' },
+			],
+		};
+		
+		let filtered = filter_event_for_seat(&event, Seat(0));
+		
+		if let GameEvent::HoleCardsDealt { cards, .. } = filtered {
+			assert_eq!(cards[0].rank, 'A');
+			assert_eq!(cards[1].rank, 'K');
+		} else {
+			panic!("Expected HoleCardsDealt");
+		}
+	}
+
+	#[test]
+	fn test_max_message_size_constant() {
+		assert!(MAX_MESSAGE_SIZE > 0);
+		assert!(MAX_MESSAGE_SIZE <= 1024 * 1024);
+	}
+
+	#[test]
+	fn test_username_length_limit() {
+		assert!(MAX_USERNAME_LENGTH > 0);
+		assert!(MAX_USERNAME_LENGTH <= 100);
+	}
+}

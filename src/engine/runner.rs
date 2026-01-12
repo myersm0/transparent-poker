@@ -465,3 +465,69 @@ impl Agent for FoldingAgent {
 		}
 	}
 }
+
+#[cfg(test)]
+mod tests {
+	use super::*;
+
+	fn make_test_config() -> RunnerConfig {
+		RunnerConfig {
+			small_blind: 1.0,
+			big_blind: 2.0,
+			starting_stack: 100.0,
+			betting_structure: BettingStructure::NoLimit,
+			max_raises_per_round: 4,
+			rake_percent: 0.0,
+			rake_cap: None,
+			no_flop_no_drop: false,
+			seed: Some(42),
+			max_hands: Some(1),
+			blind_clock: None,
+		}
+	}
+
+	#[test]
+	fn test_runner_config_creation() {
+		let config = make_test_config();
+		assert_eq!(config.small_blind, 1.0);
+		assert_eq!(config.big_blind, 2.0);
+		assert_eq!(config.starting_stack, 100.0);
+	}
+
+	#[test]
+	fn test_game_runner_creation() {
+		let runtime = tokio::runtime::Runtime::new().unwrap();
+		let config = make_test_config();
+		let (runner, handle) = GameRunner::new(config, runtime.handle().clone());
+		
+		assert_eq!(runner.players.len(), 0);
+		assert!(!handle.quit_signal.load(Ordering::SeqCst));
+	}
+
+	#[test]
+	fn test_game_handle_quit_signal() {
+		let runtime = tokio::runtime::Runtime::new().unwrap();
+		let config = make_test_config();
+		let (_runner, handle) = GameRunner::new(config, runtime.handle().clone());
+		
+		assert!(!handle.quit_signal.load(Ordering::SeqCst));
+		handle.quit_signal.store(true, Ordering::SeqCst);
+		assert!(handle.quit_signal.load(Ordering::SeqCst));
+	}
+
+	#[test]
+	fn test_sitting_out_tracking() {
+		let runtime = tokio::runtime::Runtime::new().unwrap();
+		let config = make_test_config();
+		let (_runner, handle) = GameRunner::new(config, runtime.handle().clone());
+		
+		{
+			let mut sitting_out = handle.sitting_out.lock().unwrap();
+			sitting_out.insert(Seat(0));
+		}
+		
+		let sitting_out = handle.sitting_out.lock().unwrap();
+		assert!(sitting_out.contains(&Seat(0)));
+		assert!(!sitting_out.contains(&Seat(1)));
+	}
+}

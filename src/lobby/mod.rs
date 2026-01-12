@@ -11,7 +11,6 @@ pub enum LobbyCommand {
 	AddAI,
 	RemoveAI(Seat),
 	Ready,
-	StartGame,
 }
 
 #[derive(Debug, Clone)]
@@ -37,10 +36,6 @@ pub enum LobbyEvent {
 		seat: Seat,
 	},
 	GameStarting,
-	GameReady {
-		table: TableConfig,
-		players: Vec<LobbyPlayer>,
-	},
 	NetworkGameStarted {
 		seat: Seat,
 		table_config: TableConfig,
@@ -306,7 +301,7 @@ impl LobbyBackend for NetworkBackend {
 			LobbyCommand::RemoveAI(seat) => {
 				self.client.remove_ai(seat)
 			}
-			LobbyCommand::Ready | LobbyCommand::StartGame => {
+			LobbyCommand::Ready => {
 				self.client.ready()
 			}
 		};
