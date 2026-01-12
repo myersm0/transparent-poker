@@ -57,7 +57,7 @@ enum Commands {
 		#[arg(help = "Player name")]
 		name: String,
 
-		#[arg(short, long, default_value = "10000")]
+		#[arg(short, long, default_value = "1000")]
 		#[arg(help = "Starting bankroll")]
 		bankroll: f32,
 	},

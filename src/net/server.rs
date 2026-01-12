@@ -433,11 +433,20 @@ fn handle_connection(
 	println!("Client {} disconnected", conn_id);
 }
 
+const MAX_MESSAGE_SIZE: usize = 65536;
+const MAX_USERNAME_LENGTH: usize = 32;
+const MAX_TABLE_ID_LENGTH: usize = 64;
+const MAX_CHAT_LENGTH: usize = 500;
+
 fn try_decode_message(buf: &mut Vec<u8>) -> Option<ClientMessage> {
 	if buf.len() < 4 {
 		return None;
 	}
 	let len = decode_length(buf)? as usize;
+	if len > MAX_MESSAGE_SIZE {
+		buf.clear();
+		return None;
+	}
 	if buf.len() < 4 + len {
 		return None;
 	}
@@ -456,7 +465,15 @@ fn process_message(
 ) {
 	match msg {
 		ClientMessage::Login { username } => {
-			// Login only needs connections and bank (in that order, which is fine since no tables)
+			if username.len() > MAX_USERNAME_LENGTH || username.is_empty() {
+				let mut conns = lock_connections(&connections);
+				if let Some(conn) = conns.get_mut(&conn_id) {
+					conn.send(&ServerMessage::Error {
+						message: format!("Username must be 1-{} characters", MAX_USERNAME_LENGTH),
+					});
+				}
+				return;
+			}
 			let mut conns = lock_connections(&connections);
 			if let Some(conn) = conns.get_mut(&conn_id) {
 				conn.username = Some(username.clone());
@@ -494,6 +511,15 @@ fn process_message(
 		}
 
 		ClientMessage::JoinTable { table_id } => {
+			if table_id.len() > MAX_TABLE_ID_LENGTH {
+				let mut conns = lock_connections(&connections);
+				if let Some(conn) = conns.get_mut(&conn_id) {
+					conn.send(&ServerMessage::Error {
+						message: "Invalid table ID".to_string(),
+					});
+				}
+				return;
+			}
 			// Lock order: tables first, then connections
 			let mut tables_lock = lock_tables(&tables);
 			let mut conns = lock_connections(&connections);
@@ -946,6 +972,9 @@ fn process_message(
 		}
 
 		ClientMessage::Chat { text } => {
+			if text.len() > MAX_CHAT_LENGTH {
+				return;
+			}
 			// TODO: Broadcast chat
 			println!("Chat from {}: {}", conn_id, text);
 		}

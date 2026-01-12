@@ -34,8 +34,8 @@ impl RulesPlayer {
 	}
 
 	fn get_position(&self) -> Position {
-		let button = *self.button.read().unwrap();
-		let num_players = *self.num_players.read().unwrap();
+		let button = *self.button.read().unwrap_or_else(|e| e.into_inner());
+		let num_players = *self.num_players.read().unwrap_or_else(|e| e.into_inner());
 		Position::from_seat(self.seat.0, button, num_players)
 	}
 
@@ -174,8 +174,8 @@ impl PlayerPort for RulesPlayer {
 
 	fn notify(&self, event: &GameEvent) {
 		if let GameEvent::HandStarted { button, seats, .. } = event {
-			*self.button.write().unwrap() = button.0;
-			*self.num_players.write().unwrap() = seats.len();
+			*self.button.write().unwrap_or_else(|e| e.into_inner()) = button.0;
+			*self.num_players.write().unwrap_or_else(|e| e.into_inner()) = seats.len();
 		}
 	}
 

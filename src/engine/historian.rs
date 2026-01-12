@@ -1,5 +1,5 @@
 use std::collections::HashSet;
-use std::sync::{Arc, Mutex, mpsc::Sender};
+use std::sync::{Arc, Mutex, MutexGuard, mpsc::Sender};
 use rs_poker::arena::{
 	GameState, Historian,
 	action::{Action, AgentAction, ForcedBetType},
@@ -11,6 +11,10 @@ use crate::events::{
 	BlindType, Card, ChatSender, GameEvent, HandId, PlayerAction, PotType, Seat, Street,
 };
 use crate::players::ActionRecord;
+
+fn lock_mutex<T>(mutex: &Mutex<T>) -> MutexGuard<'_, T> {
+	mutex.lock().unwrap_or_else(|e| e.into_inner())
+}
 
 #[derive(Clone)]
 pub struct RakeConfig {
@@ -99,13 +103,13 @@ impl EventHistorian {
 	}
 
 	fn capture_and_emit_hole_cards(&self, game_state: &GameState) {
-		let mut captured = self.hole_cards_captured.lock().unwrap();
+		let mut captured = lock_mutex(&self.hole_cards_captured);
 		if *captured {
 			return;
 		}
 		*captured = true;
 
-		let mut hole_cards = self.original_hole_cards.lock().unwrap();
+		let mut hole_cards = lock_mutex(&self.original_hole_cards);
 		for (i, hand) in game_state.hands.iter().enumerate() {
 			let cards: Vec<_> = hand.iter().take(2).collect();
 			if cards.len() >= 2 {
@@ -151,7 +155,7 @@ impl Historian for EventHistorian {
 			Action::RoundAdvance(round) => {
 				let round_key = Self::round_to_u8(round);
 				{
-					let mut emitted = self.emitted_streets.lock().unwrap();
+					let mut emitted = lock_mutex(&self.emitted_streets);
 					if emitted.contains(&round_key) {
 						return Ok(());
 					}
@@ -159,9 +163,9 @@ impl Historian for EventHistorian {
 				}
 
 				let street = self.convert_street(round);
-				*self.current_street.lock().unwrap() = street;
+				*lock_mutex(&self.current_street) = street;
 
-				let board = self.board.lock().unwrap().clone();
+				let board = lock_mutex(&self.board).clone();
 				self.emit(GameEvent::StreetChanged {
 					street,
 					board,
@@ -173,8 +177,8 @@ impl Historian for EventHistorian {
 						text: "Showdown".to_string(),
 					});
 
-					let hole_cards = self.original_hole_cards.lock().unwrap();
-					let folded = self.folded.lock().unwrap();
+					let hole_cards = lock_mutex(&self.original_hole_cards);
+					let folded = lock_mutex(&self.folded);
 					let mut reveals = Vec::new();
 
 					for i in 0..hole_cards.len() {
@@ -224,7 +228,7 @@ impl Historian for EventHistorian {
 
 				let action = match &payload.action {
 					AgentAction::Fold => {
-						self.folded.lock().unwrap()[payload.idx] = true;
+						lock_mutex(&self.folded)[payload.idx] = true;
 						PlayerAction::Fold
 					}
 					AgentAction::Call => {
@@ -248,8 +252,8 @@ impl Historian for EventHistorian {
 					},
 				};
 
-				let street = *self.current_street.lock().unwrap();
-				self.action_history.lock().unwrap().push(ActionRecord {
+				let street = *lock_mutex(&self.current_street);
+				lock_mutex(&self.action_history).push(ActionRecord {
 					seat: Seat(payload.idx),
 					action: action.clone(),
 					street,
@@ -269,14 +273,14 @@ impl Historian for EventHistorian {
 			}
 
 			Action::DealCommunity(card) => {
-				self.board.lock().unwrap().push(convert_card(&card));
+				lock_mutex(&self.board).push(convert_card(&card));
 			}
 
 			Action::Award(payload) => {
 				let hand_desc = payload.rank.as_ref().map(Self::format_rank);
 
 				let mut net_amount = payload.award_amount;
-				let saw_flop = self.emitted_streets.lock().unwrap().contains(&1);
+				let saw_flop = lock_mutex(&self.emitted_streets).contains(&1);
 
 				if self.rake_config.percent > 0.0 && (!self.rake_config.no_flop_no_drop || saw_flop) {
 					let mut rake = payload.award_amount * self.rake_config.percent;
@@ -287,7 +291,7 @@ impl Historian for EventHistorian {
 					net_amount = payload.award_amount - rake;
 
 					if rake > 0.0 {
-						*self.rake_collected.lock().unwrap() += rake;
+						*lock_mutex(&self.rake_collected) += rake;
 						crate::logging::log("Engine", "RAKE", &format!("${:.2} collected", rake));
 					}
 				}

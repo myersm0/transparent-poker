@@ -32,6 +32,35 @@ impl Default for ProfilesFile {
 }
 
 #[derive(Debug)]
+pub enum BankError {
+	InsufficientFunds {
+		player_id: String,
+		required: f32,
+		available: f32,
+	},
+	InvalidAmount(f32),
+}
+
+impl std::fmt::Display for BankError {
+	fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+		match self {
+			BankError::InsufficientFunds { player_id, required, available } => {
+				write!(
+					f,
+					"{} has insufficient funds: needs ${:.2}, has ${:.2}",
+					player_id, required, available
+				)
+			}
+			BankError::InvalidAmount(amount) => {
+				write!(f, "Invalid amount: {}", amount)
+			}
+		}
+	}
+}
+
+impl std::error::Error for BankError {}
+
+#[derive(Debug)]
 pub struct InsufficientFunds {
 	pub player_id: String,
 	pub required: f32,
@@ -58,6 +87,10 @@ pub struct Bank {
 
 fn normalize_id(id: &str) -> String {
 	id.to_lowercase()
+}
+
+fn is_valid_amount(amount: f32) -> bool {
+	amount.is_finite() && amount >= 0.0
 }
 
 impl Bank {
@@ -135,6 +168,7 @@ impl Bank {
 
 	pub fn register(&mut self, id: &str, bankroll: f32) {
 		let id = normalize_id(id);
+		let bankroll = if is_valid_amount(bankroll) { bankroll } else { 0.0 };
 		self.profiles.insert(
 			id.clone(),
 			PlayerProfile { bankroll },
@@ -143,6 +177,13 @@ impl Bank {
 	}
 
 	pub fn debit(&mut self, id: &str, amount: f32) -> Result<(), InsufficientFunds> {
+		if !is_valid_amount(amount) || amount == 0.0 {
+			return Err(InsufficientFunds {
+				player_id: id.to_string(),
+				required: amount,
+				available: 0.0,
+			});
+		}
 		let id = normalize_id(id);
 		let profile = self.profiles.get_mut(&id).ok_or_else(|| InsufficientFunds {
 			player_id: id.clone(),
@@ -164,6 +205,10 @@ impl Bank {
 	}
 
 	pub fn credit(&mut self, id: &str, amount: f32) {
+		if !is_valid_amount(amount) {
+			logging::log("Bank", "CREDIT", &format!("rejected invalid amount: {}", amount));
+			return;
+		}
 		let id = normalize_id(id);
 		if let Some(profile) = self.profiles.get_mut(&id) {
 			profile.bankroll += amount;
