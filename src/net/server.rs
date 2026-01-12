@@ -49,7 +49,9 @@ impl Connection {
 	fn send(&mut self, msg: &ServerMessage) {
 		let data = encode_message(msg);
 		if let Err(e) = self.stream.write_all(&data) {
-			eprintln!("Failed to send message to client: {}", e);
+			if e.kind() != std::io::ErrorKind::BrokenPipe {
+				eprintln!("Failed to send message to client: {}", e);
+			}
 		}
 	}
 }
@@ -1103,15 +1105,28 @@ fn start_game(info: GameStartInfo, bank: Arc<Mutex<Bank>>) -> ActiveGame {
 
 	// Forward events to all players with filtering and pacing
 	let game_finished_clone = Arc::clone(&game_finished);
+	let sitting_out = Arc::clone(&game_handle.sitting_out);
 	thread::spawn(move || {
 		while let Ok(event) = game_handle.event_rx.recv() {
+			// Clone the set so we don't hold the lock during I/O
+			let disconnected = sitting_out.lock()
+				.unwrap_or_else(|e| e.into_inner())
+				.clone();
+
 			for (seat, stream) in &player_streams {
+				// Skip players who have disconnected
+				if disconnected.contains(seat) {
+					continue;
+				}
 				let filtered = filter_event_for_seat(&event, *seat);
 				let msg = ServerMessage::GameEvent(filtered);
 				let data = encode_message(&msg);
 				if let Ok(mut s) = stream.lock() {
 					if let Err(e) = s.write_all(&data) {
-						eprintln!("Failed to send event to seat {}: {}", seat.0, e);
+						// BrokenPipe is expected when a player disconnects - don't spam logs
+						if e.kind() != std::io::ErrorKind::BrokenPipe {
+							eprintln!("Failed to send event to seat {}: {}", seat.0, e);
+						}
 					}
 
 					// Send ActionRequest message to the acting player
@@ -1123,7 +1138,9 @@ fn start_game(info: GameStartInfo, bank: Arc<Mutex<Bank>>) -> ActiveGame {
 							};
 							let action_data = encode_message(&action_msg);
 							if let Err(e) = s.write_all(&action_data) {
-								eprintln!("Failed to send action request to seat {}: {}", seat.0, e);
+								if e.kind() != std::io::ErrorKind::BrokenPipe {
+									eprintln!("Failed to send action request to seat {}: {}", seat.0, e);
+								}
 							}
 						}
 					}
