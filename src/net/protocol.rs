@@ -113,7 +113,7 @@ pub struct PlayerInfo {
 }
 
 pub fn encode_message<T: Serialize>(msg: &T) -> Vec<u8> {
-	let json = serde_json::to_string(msg).unwrap();
+	let json = serde_json::to_string(msg).expect("Failed to serialize message - this is a bug");
 	let len = json.len() as u32;
 	let mut buf = len.to_be_bytes().to_vec();
 	buf.extend(json.as_bytes());

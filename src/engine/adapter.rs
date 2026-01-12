@@ -1,4 +1,4 @@
-use std::sync::{Arc, Mutex, mpsc::Sender};
+use std::sync::{Arc, Mutex, MutexGuard, mpsc::Sender};
 use rs_poker::arena::{Agent, GameState, action::AgentAction};
 use rs_poker::arena::game_state::Round;
 use tokio::runtime::Handle;
@@ -7,6 +7,10 @@ use crate::events::{
 	Card, GameEvent, PlayerAction, Position, RaiseOptions, Seat, Street, ValidActions,
 };
 use crate::players::{ActionRecord, GameSnapshot, PlayerPort, PlayerResponse, SeatSnapshot};
+
+fn lock_mutex<T>(mutex: &Mutex<T>) -> MutexGuard<'_, T> {
+	mutex.lock().unwrap_or_else(|e| e.into_inner())
+}
 
 pub struct PlayerAdapter {
 	port: Arc<dyn PlayerPort>,
@@ -82,7 +86,7 @@ impl PlayerAdapter {
 			pot: game_state.total_pot,
 			seats,
 			hero_cards: self.hole_cards,
-			action_history: self.action_history.lock().unwrap().clone(),
+			action_history: lock_mutex(&self.action_history).clone(),
 		}
 	}
 
@@ -144,9 +148,7 @@ impl PlayerAdapter {
 	}
 
 	fn count_raises_this_round(&self, current_street: Street) -> u32 {
-		self.action_history
-			.lock()
-			.unwrap()
+		lock_mutex(&self.action_history)
 			.iter()
 			.filter(|a| a.street == current_street)
 			.filter(|a| matches!(a.action, PlayerAction::Raise { .. } | PlayerAction::Bet { .. }))

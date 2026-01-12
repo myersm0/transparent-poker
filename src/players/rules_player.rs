@@ -34,8 +34,8 @@ impl RulesPlayer {
 	}
 
 	fn get_position(&self) -> Position {
-		let button = *self.button.read().unwrap();
-		let num_players = *self.num_players.read().unwrap();
+		let button = *self.button.read().unwrap_or_else(|e| e.into_inner());
+		let num_players = *self.num_players.read().unwrap_or_else(|e| e.into_inner());
 		Position::from_seat(self.seat.0, button, num_players)
 	}
 
@@ -174,8 +174,8 @@ impl PlayerPort for RulesPlayer {
 
 	fn notify(&self, event: &GameEvent) {
 		if let GameEvent::HandStarted { button, seats, .. } = event {
-			*self.button.write().unwrap() = button.0;
-			*self.num_players.write().unwrap() = seats.len();
+			*self.button.write().unwrap_or_else(|e| e.into_inner()) = button.0;
+			*self.num_players.write().unwrap_or_else(|e| e.into_inner()) = seats.len();
 		}
 	}
 
@@ -189,5 +189,77 @@ impl PlayerPort for RulesPlayer {
 
 	fn is_human(&self) -> bool {
 		false
+	}
+}
+
+#[cfg(test)]
+mod tests {
+	use super::*;
+	use crate::strategy::Strategy;
+	use crate::events::Position as EventPosition;
+
+	fn make_test_player() -> RulesPlayer {
+		RulesPlayer::new(Seat(0), "TestAI", Strategy::default(), 2.0)
+	}
+
+	#[test]
+	fn test_player_creation() {
+		let player = make_test_player();
+		assert_eq!(player.seat(), Seat(0));
+		assert_eq!(player.name(), "TestAI");
+		assert!(!player.is_human());
+	}
+
+	#[test]
+	fn test_position_calculation() {
+		let player = RulesPlayer::new(Seat(0), "Test", Strategy::default(), 2.0);
+		
+		player.notify(&GameEvent::HandStarted {
+			hand_id: crate::events::HandId(1),
+			hand_num: 1,
+			button: Seat(1),
+			blinds: crate::events::Blinds { small: 1.0, big: 2.0, ante: None },
+			seats: vec![
+				crate::events::SeatInfo {
+					seat: Seat(0),
+					name: "A".to_string(),
+					stack: 100.0,
+					position: EventPosition::SmallBlind,
+					is_active: true,
+					is_human: false,
+				},
+				crate::events::SeatInfo {
+					seat: Seat(1),
+					name: "B".to_string(),
+					stack: 100.0,
+					position: EventPosition::Button,
+					is_active: true,
+					is_human: false,
+				},
+			],
+		});
+		
+		let position = player.get_position();
+		// Seat 0 with button at seat 1 in heads-up = big blind
+		assert_eq!(position, Position::Bb);
+	}
+
+	#[test]
+	fn test_card_classification() {
+		let player = make_test_player();
+		
+		let aces = [
+			Card { rank: 'A', suit: 'h' },
+			Card { rank: 'A', suit: 's' },
+		];
+		let group = player.classify_cards(&aces);
+		assert_eq!(group, Some(HandGroup::Premium));
+		
+		let trash = [
+			Card { rank: '7', suit: 'h' },
+			Card { rank: '2', suit: 's' },
+		];
+		let group = player.classify_cards(&trash);
+		assert_eq!(group, Some(HandGroup::Trash));
 	}
 }

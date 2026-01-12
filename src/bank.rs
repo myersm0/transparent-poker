@@ -60,6 +60,10 @@ fn normalize_id(id: &str) -> String {
 	id.to_lowercase()
 }
 
+fn is_valid_amount(amount: f32) -> bool {
+	amount.is_finite() && amount >= 0.0
+}
+
 impl Bank {
 	pub fn load() -> Result<Self, String> {
 		let path = Self::config_path()?;
@@ -135,6 +139,7 @@ impl Bank {
 
 	pub fn register(&mut self, id: &str, bankroll: f32) {
 		let id = normalize_id(id);
+		let bankroll = if is_valid_amount(bankroll) { bankroll } else { 0.0 };
 		self.profiles.insert(
 			id.clone(),
 			PlayerProfile { bankroll },
@@ -143,6 +148,13 @@ impl Bank {
 	}
 
 	pub fn debit(&mut self, id: &str, amount: f32) -> Result<(), InsufficientFunds> {
+		if !is_valid_amount(amount) || amount == 0.0 {
+			return Err(InsufficientFunds {
+				player_id: id.to_string(),
+				required: amount,
+				available: 0.0,
+			});
+		}
 		let id = normalize_id(id);
 		let profile = self.profiles.get_mut(&id).ok_or_else(|| InsufficientFunds {
 			player_id: id.clone(),
@@ -164,6 +176,10 @@ impl Bank {
 	}
 
 	pub fn credit(&mut self, id: &str, amount: f32) {
+		if !is_valid_amount(amount) {
+			logging::log("Bank", "CREDIT", &format!("rejected invalid amount: {}", amount));
+			return;
+		}
 		let id = normalize_id(id);
 		if let Some(profile) = self.profiles.get_mut(&id) {
 			profile.bankroll += amount;

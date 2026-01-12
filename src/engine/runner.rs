@@ -1,4 +1,4 @@
-use std::sync::{mpsc, Arc, Mutex};
+use std::sync::{mpsc, Arc, Mutex, MutexGuard};
 use std::sync::atomic::{AtomicBool, Ordering};
 use rand::{Rng, SeedableRng};
 use rand::rngs::StdRng;
@@ -16,6 +16,10 @@ use std::collections::HashSet;
 
 use crate::engine::historian::{EventHistorian, RakeConfig};
 use crate::table::BlindClock;
+
+fn lock_mutex<T>(mutex: &Mutex<T>) -> MutexGuard<'_, T> {
+	mutex.lock().unwrap_or_else(|e| e.into_inner())
+}
 
 pub struct GameRunner {
 	game_id: GameId,
@@ -188,7 +192,7 @@ impl GameRunner {
 				break;
 			}
 
-			let sitting_out = self.sitting_out.lock().unwrap();
+			let sitting_out = lock_mutex(&self.sitting_out);
 			let active_count = stacks.iter().enumerate()
 				.filter(|(i, s)| **s > 0.0 && !sitting_out.contains(&Seat(*i)))
 				.count();
@@ -209,7 +213,7 @@ impl GameRunner {
 				(self.config.small_blind, self.config.big_blind)
 			};
 
-			self.action_history.lock().unwrap().clear();
+			lock_mutex(&self.action_history).clear();
 
 			let hand_id = HandId(self.rng.random());
 
@@ -243,7 +247,7 @@ impl GameRunner {
 				});
 			}
 
-			let sitting_out = self.sitting_out.lock().unwrap();
+			let sitting_out = lock_mutex(&self.sitting_out);
 
 			// Create stacks for game state - sitting out players have 0 so they're skipped entirely
 			let game_stacks: Vec<f32> = stacks.iter().enumerate()
@@ -309,7 +313,7 @@ impl GameRunner {
 				.agents(agents)
 				.historians(vec![Box::new(historian)])
 				.build()
-				.unwrap();
+				.expect("Failed to build holdem simulation");
 
 			sim.run(&mut self.rng);
 
@@ -317,7 +321,7 @@ impl GameRunner {
 			let new_stacks = sim.game_state.stacks.clone();
 
 			// Update stacks, but preserve sitting_out players' stacks (they didn't participate)
-			let sitting_out = self.sitting_out.lock().unwrap();
+			let sitting_out = lock_mutex(&self.sitting_out);
 			for (i, new_stack) in new_stacks.iter().enumerate() {
 				if !sitting_out.contains(&Seat(i)) {
 					stacks[i] = *new_stack;
@@ -325,8 +329,8 @@ impl GameRunner {
 			}
 			drop(sitting_out);
 
-			let hole_cards = hole_cards_ref.lock().unwrap();
-			let folded = folded_ref.lock().unwrap();
+			let hole_cards = lock_mutex(&hole_cards_ref);
+			let folded = lock_mutex(&folded_ref);
 
 			let results: Vec<HandResult> = self
 				.players
@@ -369,7 +373,9 @@ impl GameRunner {
 			})
 			.collect();
 
-		standings.sort_by(|a, b| b.final_stack.partial_cmp(&a.final_stack).unwrap());
+		standings.sort_by(|a, b| {
+			b.final_stack.partial_cmp(&a.final_stack).unwrap_or(std::cmp::Ordering::Equal)
+		});
 		for (i, s) in standings.iter_mut().enumerate() {
 			s.finish_position = (i + 1) as u8;
 		}
@@ -392,7 +398,7 @@ impl GameRunner {
 
 	fn build_seat_infos(&self, stacks: &[f32], dealer_idx: usize) -> Vec<SeatInfo> {
 		let n = self.players.len();
-		let sitting_out = self.sitting_out.lock().unwrap();
+		let sitting_out = lock_mutex(&self.sitting_out);
 		self.players
 			.iter()
 			.enumerate()
@@ -425,7 +431,7 @@ impl GameRunner {
 
 	fn next_active(&self, start: usize, stacks: &[f32]) -> usize {
 		let n = stacks.len();
-		let sitting_out = self.sitting_out.lock().unwrap();
+		let sitting_out = lock_mutex(&self.sitting_out);
 		let mut idx = start;
 		loop {
 			idx = (idx + 1) % n;
@@ -457,5 +463,71 @@ impl Agent for FoldingAgent {
 		} else {
 			rs_poker::arena::action::AgentAction::Fold
 		}
+	}
+}
+
+#[cfg(test)]
+mod tests {
+	use super::*;
+
+	fn make_test_config() -> RunnerConfig {
+		RunnerConfig {
+			small_blind: 1.0,
+			big_blind: 2.0,
+			starting_stack: 100.0,
+			betting_structure: BettingStructure::NoLimit,
+			max_raises_per_round: 4,
+			rake_percent: 0.0,
+			rake_cap: None,
+			no_flop_no_drop: false,
+			seed: Some(42),
+			max_hands: Some(1),
+			blind_clock: None,
+		}
+	}
+
+	#[test]
+	fn test_runner_config_creation() {
+		let config = make_test_config();
+		assert_eq!(config.small_blind, 1.0);
+		assert_eq!(config.big_blind, 2.0);
+		assert_eq!(config.starting_stack, 100.0);
+	}
+
+	#[test]
+	fn test_game_runner_creation() {
+		let runtime = tokio::runtime::Runtime::new().unwrap();
+		let config = make_test_config();
+		let (runner, handle) = GameRunner::new(config, runtime.handle().clone());
+		
+		assert_eq!(runner.players.len(), 0);
+		assert!(!handle.quit_signal.load(Ordering::SeqCst));
+	}
+
+	#[test]
+	fn test_game_handle_quit_signal() {
+		let runtime = tokio::runtime::Runtime::new().unwrap();
+		let config = make_test_config();
+		let (_runner, handle) = GameRunner::new(config, runtime.handle().clone());
+		
+		assert!(!handle.quit_signal.load(Ordering::SeqCst));
+		handle.quit_signal.store(true, Ordering::SeqCst);
+		assert!(handle.quit_signal.load(Ordering::SeqCst));
+	}
+
+	#[test]
+	fn test_sitting_out_tracking() {
+		let runtime = tokio::runtime::Runtime::new().unwrap();
+		let config = make_test_config();
+		let (_runner, handle) = GameRunner::new(config, runtime.handle().clone());
+		
+		{
+			let mut sitting_out = handle.sitting_out.lock().unwrap();
+			sitting_out.insert(Seat(0));
+		}
+		
+		let sitting_out = handle.sitting_out.lock().unwrap();
+		assert!(sitting_out.contains(&Seat(0)));
+		assert!(!sitting_out.contains(&Seat(1)));
 	}
 }

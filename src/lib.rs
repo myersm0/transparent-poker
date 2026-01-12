@@ -6,8 +6,10 @@
 pub mod ai;
 pub mod bank;
 pub mod config;
+pub mod embedded_server;
 pub mod engine;
 pub mod events;
+pub mod game_loop;
 pub mod lobby;
 pub mod logging;
 pub mod menu;

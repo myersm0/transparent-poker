@@ -30,7 +30,7 @@ impl PlayerPort for RemotePlayer {
 		_valid_actions: ValidActions,
 		_game_state: &GameSnapshot,
 	) -> PlayerResponse {
-		let rx = self.action_rx.lock().unwrap();
+		let rx = self.action_rx.lock().unwrap_or_else(|e| e.into_inner());
 		match rx.recv_timeout(Duration::from_secs(120)) {
 			Ok(action) => PlayerResponse::Action(action),
 			Err(_) => PlayerResponse::Timeout,
