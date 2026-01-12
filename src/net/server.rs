@@ -1,7 +1,7 @@
 use std::collections::HashMap;
 use std::io::{Read, Write};
 use std::net::{TcpListener, TcpStream};
-use std::sync::{mpsc, Arc, Mutex};
+use std::sync::{mpsc, Arc, Mutex, MutexGuard};
 use std::thread;
 
 use crate::bank::Bank;
@@ -15,6 +15,30 @@ use crate::table::{load_tables, TableConfig};
 
 type ConnectionId = u64;
 
+// =============================================================================
+// LOCK ORDERING
+// =============================================================================
+// To prevent deadlocks, always acquire locks in this order:
+//   1. tables
+//   2. connections
+//   3. bank
+//
+// NEVER acquire `connections` before `tables`, or `bank` before either.
+// When possible, release earlier locks before acquiring later ones.
+// =============================================================================
+
+fn lock_tables(tables: &Mutex<HashMap<String, TableRoom>>) -> MutexGuard<'_, HashMap<String, TableRoom>> {
+	tables.lock().unwrap_or_else(|e| e.into_inner())
+}
+
+fn lock_connections(connections: &Mutex<HashMap<ConnectionId, Connection>>) -> MutexGuard<'_, HashMap<ConnectionId, Connection>> {
+	connections.lock().unwrap_or_else(|e| e.into_inner())
+}
+
+fn lock_bank(bank: &Mutex<Bank>) -> MutexGuard<'_, Bank> {
+	bank.lock().unwrap_or_else(|e| e.into_inner())
+}
+
 struct Connection {
 	username: Option<String>,
 	stream: TcpStream,
@@ -24,7 +48,9 @@ struct Connection {
 impl Connection {
 	fn send(&mut self, msg: &ServerMessage) {
 		let data = encode_message(msg);
-		let _ = self.stream.write_all(&data);
+		if let Err(e) = self.stream.write_all(&data) {
+			eprintln!("Failed to send message to client: {}", e);
+		}
 	}
 }
 
@@ -61,7 +87,7 @@ impl ActiveGame {
 	fn remove_player(&mut self, conn_id: ConnectionId) -> Option<Seat> {
 		if let Some(seat) = self.conn_to_seat.remove(&conn_id) {
 			self.action_senders.remove(&seat);
-			self.sitting_out.lock().unwrap().insert(seat);
+			self.sitting_out.lock().unwrap_or_else(|e| e.into_inner()).insert(seat);
 			Some(seat)
 		} else {
 			None
@@ -282,7 +308,7 @@ impl GameServer {
 			match stream {
 				Ok(stream) => {
 					let conn_id = {
-						let mut id = self.next_conn_id.lock().unwrap();
+						let mut id = self.next_conn_id.lock().unwrap_or_else(|e| e.into_inner());
 						let current = *id;
 						*id += 1;
 						current
@@ -313,14 +339,20 @@ fn handle_connection(
 	ai_roster: Arc<Vec<PlayerConfig>>,
 	bank: Arc<Mutex<Bank>>,
 ) {
-	let stream_clone = stream.try_clone().unwrap();
+	let stream_clone = match stream.try_clone() {
+		Ok(s) => s,
+		Err(e) => {
+			eprintln!("Failed to clone stream for client {}: {}", conn_id, e);
+			return;
+		}
+	};
 	let conn = Connection {
 		username: None,
 		stream: stream_clone,
 		current_table: None,
 	};
 
-	connections.lock().unwrap().insert(conn_id, conn);
+	lock_connections(&connections).insert(conn_id, conn);
 	println!("Client {} connected", conn_id);
 
 	let mut reader = stream;
@@ -340,9 +372,9 @@ fn handle_connection(
 		}
 	}
 
-	// Cleanup on disconnect
+	// Cleanup on disconnect - lock order: tables first for lookups, connections for removal
 	let table_id = {
-		let mut conns = connections.lock().unwrap();
+		let mut conns = lock_connections(&connections);
 		let table_id = conns.get(&conn_id).and_then(|c| c.current_table.clone());
 		conns.remove(&conn_id);
 		table_id
@@ -350,19 +382,17 @@ fn handle_connection(
 
 	if let Some(tid) = table_id {
 		let (removed_seat, has_active_game) = {
-			let mut tables = tables.lock().unwrap();
-			if let Some(table) = tables.get_mut(&tid) {
+			let mut tables_lock = lock_tables(&tables);
+			if let Some(table) = tables_lock.get_mut(&tid) {
 				let seat = table.remove_player(conn_id);
 				let no_humans = table.players.is_empty();
 				let has_active = table.active_game.is_some();
 
-				// If no humans left and game hasn't started, reset table
 				if no_humans && table.status == TableStatus::Waiting {
 					table.ai_players.clear();
 					table.ready.clear();
 				}
 
-				// If game is active, update active_game and signal quit if no humans left
 				if let Some(ref mut active_game) = table.active_game {
 					active_game.remove_player(conn_id);
 					if !active_game.has_humans() {
@@ -377,22 +407,24 @@ fn handle_connection(
 		};
 
 		if let Some(seat) = removed_seat {
+			// Lock order: tables first, then connections
+			let mut tables_lock = lock_tables(&tables);
+			let mut conns = lock_connections(&connections);
+
 			let username = "Disconnected".to_string();
 			let msg = ServerMessage::PlayerLeftTable { seat, username };
-			broadcast_to_table(&tid, &msg, &mut tables.lock().unwrap(), &mut connections.lock().unwrap());
+			broadcast_to_table(&tid, &msg, &mut tables_lock, &mut conns);
 
-			// Send PlayerLeft event if game is active (even if quitting, for final state)
 			if has_active_game {
 				let game_event = ServerMessage::GameEvent(GameEvent::PlayerLeft {
 					seat,
 					reason: LeaveReason::Disconnected,
 				});
-				broadcast_to_table(&tid, &game_event, &mut tables.lock().unwrap(), &mut connections.lock().unwrap());
+				broadcast_to_table(&tid, &game_event, &mut tables_lock, &mut conns);
 			}
 
-			// Broadcast updated lobby state
-			let table_list = build_table_list(&tables.lock().unwrap());
-			broadcast_lobby_state(&table_list, &mut connections.lock().unwrap());
+			let table_list = build_table_list(&tables_lock);
+			broadcast_lobby_state(&table_list, &mut conns);
 		}
 	}
 
@@ -422,11 +454,12 @@ fn process_message(
 ) {
 	match msg {
 		ClientMessage::Login { username } => {
-			let mut conns = connections.lock().unwrap();
+			// Login only needs connections and bank (in that order, which is fine since no tables)
+			let mut conns = lock_connections(&connections);
 			if let Some(conn) = conns.get_mut(&conn_id) {
 				conn.username = Some(username.clone());
 				let bankroll = {
-					let bank_lock = bank.lock().unwrap();
+					let bank_lock = lock_bank(&bank);
 					bank_lock.get_bankroll(&username.to_lowercase())
 				};
 				conn.send(&ServerMessage::Welcome {
@@ -438,22 +471,20 @@ fn process_message(
 		}
 
 		ClientMessage::ListTables => {
-			// First, cleanup any finished games
+			// Lock tables first, do cleanup, then get connections
 			let any_cleaned = {
-				let mut tables_lock = tables.lock().unwrap();
+				let mut tables_lock = lock_tables(&tables);
 				cleanup_finished_games(&mut tables_lock)
 			};
 
-			let tables_lock = tables.lock().unwrap();
+			let tables_lock = lock_tables(&tables);
 			let table_list = build_table_list(&tables_lock);
 			drop(tables_lock);
 
-			let mut conns = connections.lock().unwrap();
+			let mut conns = lock_connections(&connections);
 			if any_cleaned {
-				// Broadcast to all lobby clients since status changed
 				broadcast_lobby_state(&table_list, &mut conns);
 			} else {
-				// Just send to requesting client
 				if let Some(conn) = conns.get_mut(&conn_id) {
 					conn.send(&ServerMessage::LobbyState { tables: table_list });
 				}
@@ -461,8 +492,9 @@ fn process_message(
 		}
 
 		ClientMessage::JoinTable { table_id } => {
-			let mut conns = connections.lock().unwrap();
-			let mut tables_lock = tables.lock().unwrap();
+			// Lock order: tables first, then connections
+			let mut tables_lock = lock_tables(&tables);
+			let mut conns = lock_connections(&connections);
 
 			let username = conns.get(&conn_id)
 				.and_then(|c| c.username.clone())
@@ -555,8 +587,9 @@ fn process_message(
 		}
 
 		ClientMessage::LeaveTable => {
-			let mut conns = connections.lock().unwrap();
-			let mut tables_lock = tables.lock().unwrap();
+			// Lock order: tables first, then connections
+			let mut tables_lock = lock_tables(&tables);
+			let mut conns = lock_connections(&connections);
 
 			let table_id = conns.get(&conn_id).and_then(|c| c.current_table.clone());
 			if let Some(tid) = table_id {
@@ -622,8 +655,9 @@ fn process_message(
 		}
 
 		ClientMessage::Ready => {
-			let mut conns = connections.lock().unwrap();
-			let mut tables_lock = tables.lock().unwrap();
+			// Lock order: tables first, then connections, then bank
+			let mut tables_lock = lock_tables(&tables);
+			let mut conns = lock_connections(&connections);
 
 			let table_id = conns.get(&conn_id).and_then(|c| c.current_table.clone());
 			if let Some(tid) = table_id {
@@ -648,7 +682,7 @@ fn process_message(
 					broadcast_to_table(&tid, &msg, &mut tables_lock, &mut conns);
 
 					if all_ready {
-						let mut bank_lock = bank.lock().unwrap();
+						let mut bank_lock = lock_bank(&bank);
 
 						// Process buy-ins for all players
 						let buy_in_result: Result<(), String> = (|| {
@@ -779,8 +813,9 @@ fn process_message(
 		}
 
 		ClientMessage::AddAI { strategy: _ } => {
-			let mut conns = connections.lock().unwrap();
-			let mut tables_lock = tables.lock().unwrap();
+			// Lock order: tables first, then connections, then bank
+			let mut tables_lock = lock_tables(&tables);
+			let mut conns = lock_connections(&connections);
 
 			let table_id = conns.get(&conn_id).and_then(|c| c.current_table.clone());
 			if let Some(tid) = table_id {
@@ -822,9 +857,11 @@ fn process_message(
 						if let Some(ai_config) = selected {
 							// Ensure AI player has a bank profile
 							{
-								let mut bank_lock = bank.lock().unwrap();
+								let mut bank_lock = lock_bank(&bank);
 								bank_lock.ensure_exists(&ai_config.id);
-								let _ = bank_lock.save();
+								if let Err(e) = bank_lock.save() {
+									eprintln!("Failed to save bank after ensuring AI exists: {}", e);
+								}
 							}
 
 							let name = ai_config.display_name();
@@ -855,8 +892,9 @@ fn process_message(
 		}
 
 		ClientMessage::RemoveAI { seat } => {
-			let mut conns = connections.lock().unwrap();
-			let mut tables_lock = tables.lock().unwrap();
+			// Lock order: tables first, then connections
+			let mut tables_lock = lock_tables(&tables);
+			let mut conns = lock_connections(&connections);
 
 			let table_id = conns.get(&conn_id).and_then(|c| c.current_table.clone());
 			if let Some(tid) = table_id {
@@ -889,15 +927,16 @@ fn process_message(
 		}
 
 		ClientMessage::Action { action } => {
-			let conns = connections.lock().unwrap();
-			let tables_lock = tables.lock().unwrap();
+			// Lock order: tables first, then connections
+			let tables_lock = lock_tables(&tables);
+			let conns = lock_connections(&connections);
 
 			let table_id = conns.get(&conn_id).and_then(|c| c.current_table.clone());
 			if let Some(tid) = table_id {
 				if let Some(table) = tables_lock.get(&tid) {
 					if let Some(ref active_game) = table.active_game {
 						if let Err(e) = active_game.submit_action(conn_id, action) {
-							println!("Action error: {}", e);
+							eprintln!("Action error: {}", e);
 						}
 					}
 				}
@@ -984,7 +1023,7 @@ fn start_game(info: GameStartInfo, bank: Arc<Mutex<Bank>>) -> ActiveGame {
 	let runtime = tokio::runtime::Builder::new_multi_thread()
 		.enable_all()
 		.build()
-		.unwrap();
+		.expect("Failed to create tokio runtime for game");
 	let runtime_handle = runtime.handle().clone();
 
 	let runner_config = build_runner_config(&info.config);
@@ -1071,7 +1110,9 @@ fn start_game(info: GameStartInfo, bank: Arc<Mutex<Bank>>) -> ActiveGame {
 				let msg = ServerMessage::GameEvent(filtered);
 				let data = encode_message(&msg);
 				if let Ok(mut s) = stream.lock() {
-					let _ = s.write_all(&data);
+					if let Err(e) = s.write_all(&data) {
+						eprintln!("Failed to send event to seat {}: {}", seat.0, e);
+					}
 
 					// Send ActionRequest message to the acting player
 					if let GameEvent::ActionRequest { seat: action_seat, valid_actions, .. } = &event {
@@ -1081,7 +1122,9 @@ fn start_game(info: GameStartInfo, bank: Arc<Mutex<Bank>>) -> ActiveGame {
 								time_limit: Some(120),
 							};
 							let action_data = encode_message(&action_msg);
-							let _ = s.write_all(&action_data);
+							if let Err(e) = s.write_all(&action_data) {
+								eprintln!("Failed to send action request to seat {}: {}", seat.0, e);
+							}
 						}
 					}
 				}
@@ -1091,7 +1134,7 @@ fn start_game(info: GameStartInfo, bank: Arc<Mutex<Bank>>) -> ActiveGame {
 			if let GameEvent::GameEnded { final_standings, .. } = &event {
 				use crate::table::GameFormat;
 
-				let mut bank_lock = bank.lock().unwrap();
+				let mut bank_lock = bank.lock().unwrap_or_else(|e| e.into_inner());
 
 				match game_format {
 					GameFormat::Cash => {
