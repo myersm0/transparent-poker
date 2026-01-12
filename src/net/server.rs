@@ -273,7 +273,11 @@ impl GameServer {
 	pub fn run(&self, addr: &str) -> std::io::Result<()> {
 		let listener = TcpListener::bind(addr)?;
 		println!("Poker server listening on {}", addr);
+		self.run_with_listener(listener);
+		Ok(())
+	}
 
+	pub fn run_with_listener(&self, listener: TcpListener) {
 		for stream in listener.incoming() {
 			match stream {
 				Ok(stream) => {
@@ -298,7 +302,6 @@ impl GameServer {
 				}
 			}
 		}
-		Ok(())
 	}
 }
 
