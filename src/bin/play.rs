@@ -237,34 +237,42 @@ fn cmd_play(player: Option<String>, theme: Option<String>, server: Option<String
 	client.login(&username)?;
 	std::thread::sleep(Duration::from_millis(100));
 
-	let backend = NetworkBackend::new(client);
-	let mut menu = Menu::new(backend, username.clone(), theme.clone());
-
 	enable_raw_mode()?;
 	let mut stdout = stdout();
 	execute!(stdout, EnterAlternateScreen, SetTitle("transparent-poker"))?;
 	let terminal_backend = CrosstermBackend::new(stdout);
 	let mut terminal = Terminal::new(terminal_backend)?;
 
-	let result = menu.run(&mut terminal);
+	loop {
+		let backend = NetworkBackend::new(client);
+		let mut menu = Menu::new(backend, username.clone(), theme.clone());
 
-	match result {
-		Ok(MenuResult::Quit) => {
-			disable_raw_mode()?;
-			execute!(terminal.backend_mut(), LeaveAlternateScreen)?;
-			Ok(())
-		}
-		Ok(MenuResult::NetworkGameStarted { seat: _, table_config, num_players }) => {
-			let mut client = menu.into_backend().into_client();
-			game_loop::run_game(&mut terminal, &mut client, &username, theme, theme_name, table_config, num_players)?;
-			disable_raw_mode()?;
-			execute!(terminal.backend_mut(), LeaveAlternateScreen)?;
-			Ok(())
-		}
-		Err(e) => {
-			disable_raw_mode()?;
-			execute!(terminal.backend_mut(), LeaveAlternateScreen)?;
-			Err(e)
+		let result = menu.run(&mut terminal);
+
+		match result {
+			Ok(MenuResult::Quit) => {
+				disable_raw_mode()?;
+				execute!(terminal.backend_mut(), LeaveAlternateScreen)?;
+				return Ok(());
+			}
+			Ok(MenuResult::NetworkGameStarted { seat: _, table_config, num_players }) => {
+				client = menu.into_backend().into_client();
+				match game_loop::run_game(&mut terminal, &mut client, &username, theme.clone(), theme_name.clone(), table_config, num_players)? {
+					game_loop::GameLoopResult::ReturnToLobby => {
+						continue;
+					}
+					game_loop::GameLoopResult::Quit => {
+						disable_raw_mode()?;
+						execute!(terminal.backend_mut(), LeaveAlternateScreen)?;
+						return Ok(());
+					}
+				}
+			}
+			Err(e) => {
+				disable_raw_mode()?;
+				execute!(terminal.backend_mut(), LeaveAlternateScreen)?;
+				return Err(e);
+			}
 		}
 	}
 }

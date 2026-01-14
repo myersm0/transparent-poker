@@ -84,6 +84,10 @@ impl GameClient {
 			text: text.to_string(),
 		})
 	}
+
+	pub fn drain(&self) {
+		while self.rx.try_recv().is_ok() {}
+	}
 }
 
 fn read_loop(mut reader: TcpStream, tx: Sender<ServerMessage>) {

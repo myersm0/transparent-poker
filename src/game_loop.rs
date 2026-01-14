@@ -11,6 +11,11 @@ use crate::table::{build_info_lines, TableConfig};
 use crate::theme::Theme;
 use crate::tui::{GameUI, GameUIAction};
 
+pub enum GameLoopResult {
+	ReturnToLobby,
+	Quit,
+}
+
 pub fn run_game(
 	terminal: &mut Terminal<CrosstermBackend<io::Stdout>>,
 	client: &mut GameClient,
@@ -19,7 +24,11 @@ pub fn run_game(
 	theme_name: String,
 	table_config: TableConfig,
 	num_players: usize,
-) -> io::Result<()> {
+) -> io::Result<GameLoopResult> {
+	// Flush any stale keyboard input
+	while event::poll(Duration::from_millis(0))? {
+		let _ = event::read();
+	}
 	let table_info_str = format!("{} {}", table_config.betting, table_config.format);
 	let info_lines = build_info_lines(&table_config, num_players, table_config.seed);
 	let table_name = table_config.name.clone();
@@ -68,7 +77,8 @@ pub fn run_game(
 				}
 
 				if key.code == KeyCode::Char('c') && key.modifiers.contains(KeyModifiers::CONTROL) {
-					return Ok(());
+					let _ = client.leave_table();
+					return Ok(GameLoopResult::Quit);
 				}
 
 				match game_ui.handle_key(key.code) {
@@ -76,7 +86,10 @@ pub fn run_game(
 						let _ = client.action(action);
 					}
 					GameUIAction::Quit => {
-						return Ok(());
+						let _ = client.leave_table();
+						std::thread::sleep(Duration::from_millis(100));
+						client.drain();
+						return Ok(GameLoopResult::ReturnToLobby);
 					}
 					_ => {}
 				}
