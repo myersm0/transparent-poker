@@ -155,6 +155,7 @@ pub struct SeatInfo {
 	pub position: Position,
 	pub is_active: bool,
 	pub is_human: bool,
+	pub is_occupied: bool,
 }
 
 #[derive(Debug, Clone, Copy, Serialize, Deserialize)]

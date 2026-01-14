@@ -191,15 +191,27 @@ impl GameRunner {
 			.players
 			.iter()
 			.enumerate()
-			.filter_map(|(i, opt)| {
-				opt.as_ref().map(|p| SeatInfo {
-					seat: p.seat(),
-					name: p.name().to_string(),
-					stack: self.config.starting_stack,
-					position: Position::None,
-					is_active: true,
-					is_human: p.is_human(),
-				})
+			.map(|(i, opt)| {
+				match opt {
+					Some(p) => SeatInfo {
+						seat: Seat(i),
+						name: p.name().to_string(),
+						stack: self.config.starting_stack,
+						position: Position::None,
+						is_active: true,
+						is_human: p.is_human(),
+						is_occupied: true,
+					},
+					None => SeatInfo {
+						seat: Seat(i),
+						name: String::new(),
+						stack: 0.0,
+						position: Position::None,
+						is_active: false,
+						is_human: false,
+						is_occupied: false,
+					},
+				}
 			})
 			.collect();
 
@@ -455,37 +467,48 @@ impl GameRunner {
 	}
 
 	fn build_seat_infos(&self, stacks: &[f32], dealer_idx: usize) -> Vec<SeatInfo> {
-		let n = self.players.len();
 		let sitting_out = lock_mutex(&self.sitting_out);
 		self.players
 			.iter()
 			.enumerate()
-			.filter_map(|(i, opt)| {
-				opt.as_ref().map(|p| {
-					let seat = Seat(i);
-					let is_sitting_out = sitting_out.contains(&seat);
-					let is_active = stacks[i] > 0.0 && !is_sitting_out;
-					let position = if !is_active {
-						Position::None
-					} else if i == dealer_idx {
-						Position::Button
-					} else if i == self.next_occupied_from(dealer_idx, 1) {
-						Position::SmallBlind
-					} else if i == self.next_occupied_from(dealer_idx, 2) {
-						Position::BigBlind
-					} else {
-						Position::None
-					};
+			.map(|(i, opt)| {
+				let seat = Seat(i);
+				match opt {
+					Some(p) => {
+						let is_sitting_out = sitting_out.contains(&seat);
+						let is_active = stacks[i] > 0.0 && !is_sitting_out;
+						let position = if !is_active {
+							Position::None
+						} else if i == dealer_idx {
+							Position::Button
+						} else if i == self.next_occupied_from(dealer_idx, 1) {
+							Position::SmallBlind
+						} else if i == self.next_occupied_from(dealer_idx, 2) {
+							Position::BigBlind
+						} else {
+							Position::None
+						};
 
-					SeatInfo {
-						seat,
-						name: p.name().to_string(),
-						stack: stacks[i],
-						position,
-						is_active,
-						is_human: p.is_human(),
+						SeatInfo {
+							seat,
+							name: p.name().to_string(),
+							stack: stacks[i],
+							position,
+							is_active,
+							is_human: p.is_human(),
+							is_occupied: true,
+						}
 					}
-				})
+					None => SeatInfo {
+						seat,
+						name: String::new(),
+						stack: 0.0,
+						position: Position::None,
+						is_active: false,
+						is_human: false,
+						is_occupied: false,
+					},
+				}
 			})
 			.collect()
 	}

@@ -67,12 +67,15 @@ impl Widget for PlayerWidget<'_> {
 				PlayerStatus::Folded => (self.theme.folded_border(), BorderType::Plain),
 				PlayerStatus::AllIn => (self.theme.all_in_border(), BorderType::Plain),
 				PlayerStatus::Eliminated => (self.theme.eliminated_border(), BorderType::Plain),
+				PlayerStatus::Empty => (Color::DarkGray, BorderType::Plain),
 				_ => (self.theme.default_border(), BorderType::Plain),
 			}
 		};
 
 		let border_style = if self.is_winner || self.player.is_actor {
 			Style::default().fg(border_color).add_modifier(Modifier::BOLD)
+		} else if self.player.status == PlayerStatus::Empty {
+			Style::default().fg(border_color).add_modifier(Modifier::DIM)
 		} else {
 			Style::default().fg(border_color)
 		};
@@ -87,6 +90,8 @@ impl Widget for PlayerWidget<'_> {
 			Style::default().fg(self.theme.winner_name()).add_modifier(Modifier::BOLD)
 		} else if self.player.is_actor {
 			Style::default().fg(self.theme.actor_name()).add_modifier(Modifier::BOLD)
+		} else if self.player.status == PlayerStatus::Empty {
+			Style::default().fg(Color::DarkGray).add_modifier(Modifier::DIM)
 		} else {
 			Style::default()
 		};
@@ -134,7 +139,9 @@ impl Widget for PlayerWidget<'_> {
 			return;
 		}
 
-		let cards_line = if self.player.status == PlayerStatus::Folded {
+		let cards_line = if self.player.status == PlayerStatus::Empty {
+			Line::styled("—", Style::default().fg(Color::DarkGray).add_modifier(Modifier::DIM))
+		} else if self.player.status == PlayerStatus::Folded {
 			Line::styled("folded", Style::default().fg(self.theme.folded_text()))
 		} else if self.player.status == PlayerStatus::Eliminated {
 			Line::styled("out", Style::default().fg(self.theme.eliminated_text()))
@@ -148,7 +155,11 @@ impl Widget for PlayerWidget<'_> {
 			render_hidden_cards(self.theme)
 		};
 
-		let stack_str = format!("${:.0}", self.player.stack);
+		let stack_str = if self.player.status == PlayerStatus::Empty {
+			String::new()
+		} else {
+			format!("${:.0}", self.player.stack)
+		};
 		let bet_str = if self.player.current_bet > 0.0 {
 			format!(" (${:.0})", self.player.current_bet)
 		} else {
