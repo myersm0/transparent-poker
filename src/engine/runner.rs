@@ -24,7 +24,7 @@ fn lock_mutex<T>(mutex: &Mutex<T>) -> MutexGuard<'_, T> {
 pub struct GameRunner {
 	game_id: GameId,
 	config: RunnerConfig,
-	players: Vec<Arc<dyn PlayerPort>>,
+	players: Vec<Option<Arc<dyn PlayerPort>>>,
 	event_tx: mpsc::Sender<GameEvent>,
 	action_history: Arc<Mutex<Vec<ActionRecord>>>,
 	blind_clock: Option<BlindClock>,
@@ -46,6 +46,7 @@ pub struct RunnerConfig {
 	pub no_flop_no_drop: bool,
 	pub max_hands: Option<u32>,
 	pub seed: Option<u64>,
+	pub max_seats: Option<usize>,  // None = compact (tournaments), Some(n) = fixed (cash)
 }
 
 impl Default for RunnerConfig {
@@ -62,6 +63,7 @@ impl Default for RunnerConfig {
 			no_flop_no_drop: false,
 			max_hands: None,
 			seed: None,
+			max_seats: None,
 		}
 	}
 }
@@ -87,10 +89,15 @@ impl GameRunner {
 		let quit_signal = Arc::new(AtomicBool::new(false));
 		let sitting_out = Arc::new(Mutex::new(HashSet::new()));
 
+		let players = match config.max_seats {
+			Some(n) => vec![None; n],
+			None => Vec::new(),
+		};
+
 		let runner = Self {
 			game_id,
 			config,
-			players: Vec::new(),
+			players,
 			event_tx,
 			action_history: Arc::new(Mutex::new(Vec::new())),
 			blind_clock,
@@ -120,12 +127,31 @@ impl GameRunner {
 			is_human: player.is_human(),
 		});
 
-		self.players.push(player);
+		if self.config.max_seats.is_some() {
+			// Fixed-seat mode: insert at seat position
+			self.players[seat.0] = Some(player);
+		} else {
+			// Compact mode: append
+			self.players.push(Some(player));
+		}
 	}
 
 	pub fn run(&mut self) {
-		let num_players = self.players.len();
-		if num_players < 2 {
+		let num_slots = self.players.len();
+		let occupied_count = self.players.iter().filter(|p| p.is_some()).count();
+		
+		logging::log(
+			"Engine",
+			"GAME",
+			&format!(
+				"Starting: {} slots, {} occupied, fixed_seat={}",
+				num_slots,
+				occupied_count,
+				self.config.max_seats.is_some()
+			)
+		);
+		
+		if occupied_count < 2 {
 			self.emit(GameEvent::GameEnded {
 				reason: GameEndReason::Error,
 				final_standings: vec![],
@@ -140,14 +166,14 @@ impl GameRunner {
 				small_blind: self.config.small_blind,
 				big_blind: self.config.big_blind,
 				starting_stack: self.config.starting_stack,
-				max_players: 10,
+				max_players: num_slots,
 				time_bank: None,
 			},
 		});
 
 		logging::set_game_id(self.game_id.0);
 
-		for player in &self.players {
+		for player in self.players.iter().flatten() {
 			player.notify(&GameEvent::GameCreated {
 				game_id: self.game_id,
 				config: GameConfig {
@@ -155,7 +181,7 @@ impl GameRunner {
 					small_blind: self.config.small_blind,
 					big_blind: self.config.big_blind,
 					starting_stack: self.config.starting_stack,
-					max_players: 10,
+					max_players: num_slots,
 					time_bank: None,
 				},
 			});
@@ -165,13 +191,15 @@ impl GameRunner {
 			.players
 			.iter()
 			.enumerate()
-			.map(|(i, p)| SeatInfo {
-				seat: p.seat(),
-				name: p.name().to_string(),
-				stack: self.config.starting_stack,
-				position: Position::None,
-				is_active: true,
-				is_human: p.is_human(),
+			.filter_map(|(i, opt)| {
+				opt.as_ref().map(|p| SeatInfo {
+					seat: p.seat(),
+					name: p.name().to_string(),
+					stack: self.config.starting_stack,
+					position: Position::None,
+					is_active: true,
+					is_human: p.is_human(),
+				})
 			})
 			.collect();
 
@@ -179,8 +207,11 @@ impl GameRunner {
 			seats: seat_infos,
 		});
 
-		let mut stacks = vec![self.config.starting_stack; num_players];
-		let mut dealer_idx = 0;
+		// Initialize stacks: occupied seats get starting_stack, empty get 0
+		let mut stacks: Vec<f32> = self.players.iter()
+			.map(|opt| if opt.is_some() { self.config.starting_stack } else { 0.0 })
+			.collect();
+		let mut dealer_idx = self.find_first_occupied(0);
 		let mut hand_num: u32 = 0;
 
 		loop {
@@ -194,7 +225,9 @@ impl GameRunner {
 
 			let sitting_out = lock_mutex(&self.sitting_out);
 			let active_count = self.players.iter().enumerate()
-				.filter(|(i, p)| stacks[*i] > 0.0 && !sitting_out.contains(&p.seat()))
+				.filter(|(i, opt)| {
+					opt.is_some() && stacks[*i] > 0.0 && !sitting_out.contains(&Seat(*i))
+				})
 				.count();
 			drop(sitting_out);
 			if active_count <= 1 {
@@ -218,7 +251,7 @@ impl GameRunner {
 			let hand_id = HandId(self.rng.random());
 
 			let seat_infos = self.build_seat_infos(&stacks, dealer_idx);
-			let button_seat = self.players[dealer_idx].seat();
+			let button_seat = Seat(dealer_idx);
 
 			self.emit(GameEvent::HandStarted {
 				hand_id,
@@ -232,9 +265,10 @@ impl GameRunner {
 				seats: seat_infos,
 			});
 
-			logging::engine::hand_started(dealer_idx, num_players);
+			let num_slots = self.players.len();
+			logging::engine::hand_started(dealer_idx, num_slots);
 
-			for player in &self.players {
+			for player in self.players.iter().flatten() {
 				player.notify(&GameEvent::HandStarted {
 					hand_id,
 					hand_num,
@@ -250,12 +284,17 @@ impl GameRunner {
 
 			let sitting_out = lock_mutex(&self.sitting_out);
 
-			// Build seat_map: player_idx -> table_seat
-			let seat_map: Vec<Seat> = self.players.iter().map(|p| p.seat()).collect();
+			// Build seat_map: slot_idx -> table_seat (for fixed mode, slot_idx == seat)
+			let seat_map: Vec<Seat> = (0..self.players.len()).map(|i| Seat(i)).collect();
 
-			// Create stacks for game state - sitting out players have 0 so they're skipped entirely
+			// Create stacks for game state - empty/sitting_out seats have 0
 			let game_stacks: Vec<f32> = self.players.iter().enumerate()
-				.map(|(i, p)| if sitting_out.contains(&p.seat()) { 0.0 } else { stacks[i] })
+				.map(|(i, opt)| {
+					match opt {
+						None => 0.0,
+						Some(p) => if sitting_out.contains(&Seat(i)) { 0.0 } else { stacks[i] }
+					}
+				})
 				.collect();
 
 			let game_state = GameState::new_starting(
@@ -266,28 +305,35 @@ impl GameRunner {
 				dealer_idx,
 			);
 
-			let player_names: Vec<String> = self.players.iter().map(|p| p.name().to_string()).collect();
+			let player_names: Vec<String> = self.players.iter()
+				.map(|opt| opt.as_ref().map(|p| p.name().to_string()).unwrap_or_default())
+				.collect();
 
 			let agents: Vec<Box<dyn Agent>> = self
 				.players
 				.iter()
 				.enumerate()
-				.map(|(player_idx, p)| {
-					let seat = p.seat();
-					if stacks[player_idx] <= 0.0 || sitting_out.contains(&seat) {
-						Box::new(FoldingAgent) as Box<dyn Agent>
-					} else {
-						Box::new(PlayerAdapter::new(
-							Arc::clone(p),
-							seat,
-							player_idx,
-							seat_map.clone(),
-							self.config.betting_structure,
-							Arc::clone(&self.action_history),
-							self.event_tx.clone(),
-							self.config.max_raises_per_round,
-							self.runtime_handle.clone(),
-						)) as Box<dyn Agent>
+				.map(|(slot_idx, opt)| {
+					let seat = Seat(slot_idx);
+					match opt {
+						None => Box::new(FoldingAgent) as Box<dyn Agent>,
+						Some(p) => {
+							if stacks[slot_idx] <= 0.0 || sitting_out.contains(&seat) {
+								Box::new(FoldingAgent) as Box<dyn Agent>
+							} else {
+								Box::new(PlayerAdapter::new(
+									Arc::clone(p),
+									seat,
+									slot_idx,
+									seat_map.clone(),
+									self.config.betting_structure,
+									Arc::clone(&self.action_history),
+									self.event_tx.clone(),
+									self.config.max_raises_per_round,
+									self.runtime_handle.clone(),
+								)) as Box<dyn Agent>
+							}
+						}
 					}
 				})
 				.collect();
@@ -328,10 +374,10 @@ impl GameRunner {
 			let old_stacks = stacks.clone();
 			let new_stacks = sim.game_state.stacks.clone();
 
-			// Update stacks, but preserve sitting_out players' stacks (they didn't participate)
+			// Update stacks, but preserve sitting_out/empty players' stacks
 			let sitting_out = lock_mutex(&self.sitting_out);
 			for (i, new_stack) in new_stacks.iter().enumerate() {
-				if !sitting_out.contains(&self.players[i].seat()) {
+				if self.players[i].is_some() && !sitting_out.contains(&Seat(i)) {
 					stacks[i] = *new_stack;
 				}
 			}
@@ -344,19 +390,21 @@ impl GameRunner {
 				.players
 				.iter()
 				.enumerate()
-				.map(|(i, p)| {
-					let showed = if !folded[i] {
-						hole_cards[i].clone()
-					} else {
-						None
-					};
-					HandResult {
-						seat: p.seat(),
-						stack_change: stacks[i] - old_stacks[i],
-						final_stack: stacks[i],
-						showed_cards: showed,
-						hand_description: None,
-					}
+				.filter_map(|(i, opt)| {
+					opt.as_ref().map(|_p| {
+						let showed = if !folded[i] {
+							hole_cards[i].clone()
+						} else {
+							None
+						};
+						HandResult {
+							seat: Seat(i),
+							stack_change: stacks[i] - old_stacks[i],
+							final_stack: stacks[i],
+							showed_cards: showed,
+							hand_description: None,
+						}
+					})
 				})
 				.collect();
 
@@ -373,11 +421,13 @@ impl GameRunner {
 			.players
 			.iter()
 			.enumerate()
-			.map(|(i, p)| Standing {
-				seat: p.seat(),
-				name: p.name().to_string(),
-				final_stack: stacks[i],
-				finish_position: 0,
+			.filter_map(|(i, opt)| {
+				opt.as_ref().map(|p| Standing {
+					seat: Seat(i),
+					name: p.name().to_string(),
+					final_stack: stacks[i],
+					finish_position: 0,
+				})
 			})
 			.collect();
 
@@ -410,30 +460,32 @@ impl GameRunner {
 		self.players
 			.iter()
 			.enumerate()
-			.map(|(i, p)| {
-				let seat = p.seat();
-				let is_sitting_out = sitting_out.contains(&seat);
-				let is_active = stacks[i] > 0.0 && !is_sitting_out;
-				let position = if !is_active {
-					Position::None
-				} else if i == dealer_idx {
-					Position::Button
-				} else if i == (dealer_idx + 1) % n {
-					Position::SmallBlind
-				} else if i == (dealer_idx + 2) % n {
-					Position::BigBlind
-				} else {
-					Position::None
-				};
+			.filter_map(|(i, opt)| {
+				opt.as_ref().map(|p| {
+					let seat = Seat(i);
+					let is_sitting_out = sitting_out.contains(&seat);
+					let is_active = stacks[i] > 0.0 && !is_sitting_out;
+					let position = if !is_active {
+						Position::None
+					} else if i == dealer_idx {
+						Position::Button
+					} else if i == self.next_occupied_from(dealer_idx, 1) {
+						Position::SmallBlind
+					} else if i == self.next_occupied_from(dealer_idx, 2) {
+						Position::BigBlind
+					} else {
+						Position::None
+					};
 
-				SeatInfo {
-					seat,
-					name: p.name().to_string(),
-					stack: stacks[i],
-					position,
-					is_active,
-					is_human: p.is_human(),
-				}
+					SeatInfo {
+						seat,
+						name: p.name().to_string(),
+						stack: stacks[i],
+						position,
+						is_active,
+						is_human: p.is_human(),
+					}
+				})
 			})
 			.collect()
 	}
@@ -444,9 +496,37 @@ impl GameRunner {
 		let mut idx = start;
 		loop {
 			idx = (idx + 1) % n;
-			let seat = self.players[idx].seat();
-			if stacks[idx] > 0.0 && !sitting_out.contains(&seat) {
+			if self.players[idx].is_some() && stacks[idx] > 0.0 && !sitting_out.contains(&Seat(idx)) {
 				return idx;
+			}
+			if idx == start {
+				return start;
+			}
+		}
+	}
+
+	fn find_first_occupied(&self, from: usize) -> usize {
+		let n = self.players.len();
+		for i in 0..n {
+			let idx = (from + i) % n;
+			if self.players[idx].is_some() {
+				return idx;
+			}
+		}
+		from
+	}
+
+	fn next_occupied_from(&self, start: usize, steps: usize) -> usize {
+		let n = self.players.len();
+		let mut idx = start;
+		let mut found = 0;
+		loop {
+			idx = (idx + 1) % n;
+			if self.players[idx].is_some() {
+				found += 1;
+				if found == steps {
+					return idx;
+				}
 			}
 			if idx == start {
 				return start;
@@ -493,6 +573,7 @@ mod tests {
 			seed: Some(42),
 			max_hands: Some(1),
 			blind_clock: None,
+			max_seats: None,
 		}
 	}
 

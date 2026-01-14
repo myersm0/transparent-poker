@@ -21,6 +21,7 @@ fn main() {
 		no_flop_no_drop: false,
 		max_hands: Some(50),
 		seed: None,
+		max_seats: None,
 	};
 
 	let runtime = tokio::runtime::Runtime::new().expect("Failed to create tokio runtime");

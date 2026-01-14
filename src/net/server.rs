@@ -1255,6 +1255,12 @@ fn build_runner_config(table: &TableConfig) -> RunnerConfig {
 	let (small_blind, big_blind) = table.current_blinds();
 	let starting_stack = table.effective_starting_stack();
 
+	// Cash games use fixed seats, tournaments use compact mode
+	let max_seats = match table.format {
+		crate::table::GameFormat::Cash => Some(table.max_players),
+		crate::table::GameFormat::SitNGo => None,
+	};
+
 	RunnerConfig {
 		small_blind,
 		big_blind,
@@ -1271,6 +1277,7 @@ fn build_runner_config(table: &TableConfig) -> RunnerConfig {
 		no_flop_no_drop: table.no_flop_no_drop,
 		max_hands: None,
 		seed: table.seed,
+		max_seats,
 	}
 }
 
