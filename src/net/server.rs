@@ -1104,24 +1104,22 @@ fn start_game(info: GameStartInfo, bank: Arc<Mutex<Bank>>) -> ActiveGame {
 	// Collect streams for event forwarding (human players only)
 	let mut player_streams: Vec<(Seat, Arc<Mutex<TcpStream>>)> = Vec::new();
 
-	for (idx, (_lobby_seat, slot)) in all_players.into_iter().enumerate() {
-		let game_seat = Seat(idx);
-
+	for (table_seat, slot) in all_players.into_iter() {
 		match slot {
 			PlayerSlot::Human { conn_id, name, stream } => {
 				if let Ok(stream_for_events) = stream.try_clone() {
-					player_streams.push((game_seat, Arc::new(Mutex::new(stream_for_events))));
+					player_streams.push((table_seat, Arc::new(Mutex::new(stream_for_events))));
 				}
 
 				let (action_tx, action_rx) = mpsc::channel();
-				active_game.register_player(conn_id, game_seat, action_tx);
+				active_game.register_player(conn_id, table_seat, action_tx);
 
-				let player = RemotePlayer::new(game_seat, name, action_rx);
+				let player = RemotePlayer::new(table_seat, name, action_rx);
 				runner.add_player(Arc::new(player));
 			}
 			PlayerSlot::AI { name, strategy } => {
 				let strat = strategies.get_or_default(&strategy);
-				let player = RulesPlayer::new(game_seat, &name, strat, big_blind);
+				let player = RulesPlayer::new(table_seat, &name, strat, big_blind);
 				runner.add_player(Arc::new(player));
 			}
 		}
