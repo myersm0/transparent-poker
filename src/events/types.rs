@@ -57,6 +57,12 @@ pub enum GameEvent {
 		reason: LeaveReason,
 	},
 
+	PlayerCashedOut {
+		seat: Seat,
+		name: String,
+		amount: f32,
+	},
+
 	GameStarted {
 		seats: Vec<SeatInfo>,
 	},

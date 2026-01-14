@@ -422,6 +422,33 @@ impl GameRunner {
 
 			self.emit(GameEvent::HandEnded { hand_id, results });
 
+			// Cash out any players who left mid-game (sitting_out with stack > 0)
+			let sitting_out = lock_mutex(&self.sitting_out);
+			logging::log("Engine", "DEBUG", &format!(
+				"Checking cashout: sitting_out={:?}, stacks={:?}",
+				sitting_out.iter().map(|s| s.0).collect::<Vec<_>>(),
+				stacks
+			));
+			for i in 0..self.players.len() {
+				if sitting_out.contains(&Seat(i)) && stacks[i] > 0.0 {
+					let name = self.players[i]
+						.as_ref()
+						.map(|p| p.name().to_string())
+						.unwrap_or_default();
+					logging::log("Engine", "CASHOUT", &format!(
+						"Emitting PlayerCashedOut: seat={}, name={}, amount={}",
+						i, name, stacks[i]
+					));
+					self.emit(GameEvent::PlayerCashedOut {
+						seat: Seat(i),
+						name,
+						amount: stacks[i],
+					});
+					stacks[i] = 0.0;
+				}
+			}
+			drop(sitting_out);
+
 			if let Some(ref mut clock) = self.blind_clock {
 				clock.advance_hand();
 			}

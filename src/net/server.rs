@@ -1174,6 +1174,20 @@ fn start_game(info: GameStartInfo, bank: Arc<Mutex<Bank>>) -> ActiveGame {
 				}
 			}
 
+			// Handle mid-game cashout for players who left
+			if let GameEvent::PlayerCashedOut { seat, amount, .. } = &event {
+				use crate::table::GameFormat;
+				if game_format == GameFormat::Cash {
+					let mut bank_lock = bank.lock().unwrap_or_else(|e| e.into_inner());
+					if let Some(bank_id) = player_bank_ids.get(seat.0) {
+						bank_lock.cashout(bank_id, *amount, &table_id);
+					}
+					if let Err(e) = bank_lock.save() {
+						eprintln!("Failed to save bank after mid-game cashout: {}", e);
+					}
+				}
+			}
+
 			// Handle game end - process cashout/prizes
 			if let GameEvent::GameEnded { final_standings, .. } = &event {
 				use crate::table::GameFormat;
