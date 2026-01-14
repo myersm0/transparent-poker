@@ -444,11 +444,11 @@ impl<B: LobbyBackend> Menu<B> {
 				Style::default().fg(self.theme.menu_title()).add_modifier(Modifier::BOLD),
 			),
 			Span::styled(
-				format!("{:>7}", "Buy-in"),
+				format!("{:>6}", "Seats"),
 				Style::default().fg(self.theme.menu_title()).add_modifier(Modifier::BOLD),
 			),
 			Span::styled(
-				"Players",
+				format!("{:>8}", "Joinable"),
 				Style::default().fg(self.theme.menu_title()).add_modifier(Modifier::BOLD),
 			),
 		]);
@@ -475,6 +475,11 @@ impl<B: LobbyBackend> Menu<B> {
 					"Fixed-Limit" => "Fixed",
 					other => other,
 				};
+				let (joinable_text, joinable_color) = if t.is_joinable {
+					("Yes", self.theme.stack())
+				} else {
+					("No", self.theme.menu_unselected())
+				};
 				let line = Line::from(vec![
 					Span::styled(
 						format!("{:<24}", truncate_str(&t.name, 23)),
@@ -497,12 +502,12 @@ impl<B: LobbyBackend> Menu<B> {
 						Style::default().fg(self.theme.menu_highlight()),
 					),
 					Span::styled(
-						format!("{:>7}", t.buy_in),
-						Style::default().fg(self.theme.bet()),
+						format!("{:>6}", format!("{}/{}", t.players, t.max_players)),
+						Style::default().fg(self.theme.menu_unselected()),
 					),
 					Span::styled(
-						format!("{:>3}/{:<3}", t.players, t.max_players),
-						Style::default().fg(self.theme.menu_unselected()),
+						format!("{:>8}", joinable_text),
+						Style::default().fg(joinable_color),
 					),
 				]);
 				ListItem::new(line)

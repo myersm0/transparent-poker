@@ -92,6 +92,7 @@ pub struct TableInfo {
 	pub players: usize,
 	pub max_players: usize,
 	pub status: TableStatus,
+	pub is_joinable: bool,
 	pub config: TableConfig,
 }
 
@@ -309,6 +310,7 @@ mod tests {
 			players: 3,
 			max_players: 6,
 			status: TableStatus::InProgress,
+			is_joinable: true,
 			config,
 		};
 		let json = serde_json::to_string(&info).unwrap();

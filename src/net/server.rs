@@ -213,6 +213,8 @@ impl TableRoom {
 			_ => "N/A".to_string(),
 		};
 		let buy_in = self.config.effective_buy_in();
+		let player_count = self.player_count();
+		let is_joinable = self.config.is_joinable(player_count, &self.status);
 		TableInfo {
 			id: self.config.id.clone(),
 			name: self.config.name.clone(),
@@ -220,9 +222,10 @@ impl TableRoom {
 			betting: self.config.betting.to_string(),
 			blinds,
 			buy_in: format!("${:.0}", buy_in),
-			players: self.player_count(),
+			players: player_count,
 			max_players: self.config.max_players,
 			status: self.status,
+			is_joinable,
 			config: self.config.clone(),
 		}
 	}
@@ -1135,6 +1138,15 @@ fn start_game(info: GameStartInfo, bank: Arc<Mutex<Bank>>) -> ActiveGame {
 	let sitting_out = Arc::clone(&game_handle.sitting_out);
 	thread::spawn(move || {
 		while let Ok(event) = game_handle.event_rx.recv() {
+			// Log all events for debugging
+			if matches!(&event, GameEvent::PlayerCashedOut { .. } | GameEvent::GameEnded { .. }) {
+				use std::fs::OpenOptions;
+				use std::io::Write as IoWrite;
+				if let Ok(mut f) = OpenOptions::new().create(true).append(true).open("logs/server-debug.log") {
+					let _ = writeln!(f, "Event received: {:?}", std::mem::discriminant(&event));
+				}
+			}
+
 			// Clone the set so we don't hold the lock during I/O
 			let disconnected = sitting_out.lock()
 				.unwrap_or_else(|e| e.into_inner())
@@ -1175,12 +1187,25 @@ fn start_game(info: GameStartInfo, bank: Arc<Mutex<Bank>>) -> ActiveGame {
 			}
 
 			// Handle mid-game cashout for players who left
-			if let GameEvent::PlayerCashedOut { seat, amount, .. } = &event {
+			if let GameEvent::PlayerCashedOut { seat, name, amount } = &event {
 				use crate::table::GameFormat;
+				use std::fs::OpenOptions;
+				use std::io::Write as IoWrite;
+				if let Ok(mut f) = OpenOptions::new().create(true).append(true).open("logs/server-debug.log") {
+					let _ = writeln!(f, "PlayerCashedOut: seat={} name={} amount={} format={:?} bank_ids={:?}",
+						seat.0, name, amount, game_format, player_bank_ids);
+				}
 				if game_format == GameFormat::Cash {
 					let mut bank_lock = bank.lock().unwrap_or_else(|e| e.into_inner());
 					if let Some(bank_id) = player_bank_ids.get(seat.0) {
+						if let Ok(mut f) = OpenOptions::new().create(true).append(true).open("logs/server-debug.log") {
+							let _ = writeln!(f, "Calling cashout for bank_id={}", bank_id);
+						}
 						bank_lock.cashout(bank_id, *amount, &table_id);
+					} else {
+						if let Ok(mut f) = OpenOptions::new().create(true).append(true).open("logs/server-debug.log") {
+							let _ = writeln!(f, "No bank_id at index {}", seat.0);
+						}
 					}
 					if let Err(e) = bank_lock.save() {
 						eprintln!("Failed to save bank after mid-game cashout: {}", e);
