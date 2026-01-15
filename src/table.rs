@@ -176,6 +176,20 @@ impl TableConfig {
 			format!("{}-{} players", self.min_players, self.max_players)
 		}
 	}
+
+	pub fn is_joinable(&self, current_players: usize, status: &crate::net::protocol::TableStatus) -> bool {
+		use crate::net::protocol::TableStatus;
+		match self.format {
+			GameFormat::Cash => {
+				// Cash games: joinable if there are empty seats (even in progress)
+				current_players < self.max_players
+			}
+			GameFormat::SitNGo => {
+				// Tournaments: only joinable if waiting and has space
+				*status == TableStatus::Waiting && current_players < self.max_players
+			}
+		}
+	}
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]

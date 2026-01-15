@@ -213,6 +213,8 @@ impl TableRoom {
 			_ => "N/A".to_string(),
 		};
 		let buy_in = self.config.effective_buy_in();
+		let player_count = self.player_count();
+		let is_joinable = self.config.is_joinable(player_count, &self.status);
 		TableInfo {
 			id: self.config.id.clone(),
 			name: self.config.name.clone(),
@@ -220,9 +222,10 @@ impl TableRoom {
 			betting: self.config.betting.to_string(),
 			blinds,
 			buy_in: format!("${:.0}", buy_in),
-			players: self.player_count(),
+			players: player_count,
 			max_players: self.config.max_players,
 			status: self.status,
+			is_joinable,
 			config: self.config.clone(),
 		}
 	}
@@ -1104,24 +1107,22 @@ fn start_game(info: GameStartInfo, bank: Arc<Mutex<Bank>>) -> ActiveGame {
 	// Collect streams for event forwarding (human players only)
 	let mut player_streams: Vec<(Seat, Arc<Mutex<TcpStream>>)> = Vec::new();
 
-	for (idx, (_lobby_seat, slot)) in all_players.into_iter().enumerate() {
-		let game_seat = Seat(idx);
-
+	for (table_seat, slot) in all_players.into_iter() {
 		match slot {
 			PlayerSlot::Human { conn_id, name, stream } => {
 				if let Ok(stream_for_events) = stream.try_clone() {
-					player_streams.push((game_seat, Arc::new(Mutex::new(stream_for_events))));
+					player_streams.push((table_seat, Arc::new(Mutex::new(stream_for_events))));
 				}
 
 				let (action_tx, action_rx) = mpsc::channel();
-				active_game.register_player(conn_id, game_seat, action_tx);
+				active_game.register_player(conn_id, table_seat, action_tx);
 
-				let player = RemotePlayer::new(game_seat, name, action_rx);
+				let player = RemotePlayer::new(table_seat, name, action_rx);
 				runner.add_player(Arc::new(player));
 			}
 			PlayerSlot::AI { name, strategy } => {
 				let strat = strategies.get_or_default(&strategy);
-				let player = RulesPlayer::new(game_seat, &name, strat, big_blind);
+				let player = RulesPlayer::new(table_seat, &name, strat, big_blind);
 				runner.add_player(Arc::new(player));
 			}
 		}
@@ -1137,6 +1138,15 @@ fn start_game(info: GameStartInfo, bank: Arc<Mutex<Bank>>) -> ActiveGame {
 	let sitting_out = Arc::clone(&game_handle.sitting_out);
 	thread::spawn(move || {
 		while let Ok(event) = game_handle.event_rx.recv() {
+			// Log all events for debugging
+			if matches!(&event, GameEvent::PlayerCashedOut { .. } | GameEvent::GameEnded { .. }) {
+				use std::fs::OpenOptions;
+				use std::io::Write as IoWrite;
+				if let Ok(mut f) = OpenOptions::new().create(true).append(true).open("logs/server-debug.log") {
+					let _ = writeln!(f, "Event received: {:?}", std::mem::discriminant(&event));
+				}
+			}
+
 			// Clone the set so we don't hold the lock during I/O
 			let disconnected = sitting_out.lock()
 				.unwrap_or_else(|e| e.into_inner())
@@ -1172,6 +1182,33 @@ fn start_game(info: GameStartInfo, bank: Arc<Mutex<Bank>>) -> ActiveGame {
 								}
 							}
 						}
+					}
+				}
+			}
+
+			// Handle mid-game cashout for players who left
+			if let GameEvent::PlayerCashedOut { seat, name, amount } = &event {
+				use crate::table::GameFormat;
+				use std::fs::OpenOptions;
+				use std::io::Write as IoWrite;
+				if let Ok(mut f) = OpenOptions::new().create(true).append(true).open("logs/server-debug.log") {
+					let _ = writeln!(f, "PlayerCashedOut: seat={} name={} amount={} format={:?} bank_ids={:?}",
+						seat.0, name, amount, game_format, player_bank_ids);
+				}
+				if game_format == GameFormat::Cash {
+					let mut bank_lock = bank.lock().unwrap_or_else(|e| e.into_inner());
+					if let Some(bank_id) = player_bank_ids.get(seat.0) {
+						if let Ok(mut f) = OpenOptions::new().create(true).append(true).open("logs/server-debug.log") {
+							let _ = writeln!(f, "Calling cashout for bank_id={}", bank_id);
+						}
+						bank_lock.cashout(bank_id, *amount, &table_id);
+					} else {
+						if let Ok(mut f) = OpenOptions::new().create(true).append(true).open("logs/server-debug.log") {
+							let _ = writeln!(f, "No bank_id at index {}", seat.0);
+						}
+					}
+					if let Err(e) = bank_lock.save() {
+						eprintln!("Failed to save bank after mid-game cashout: {}", e);
 					}
 				}
 			}
@@ -1257,6 +1294,12 @@ fn build_runner_config(table: &TableConfig) -> RunnerConfig {
 	let (small_blind, big_blind) = table.current_blinds();
 	let starting_stack = table.effective_starting_stack();
 
+	// Cash games use fixed seats, tournaments use compact mode
+	let max_seats = match table.format {
+		crate::table::GameFormat::Cash => Some(table.max_players),
+		crate::table::GameFormat::SitNGo => None,
+	};
+
 	RunnerConfig {
 		small_blind,
 		big_blind,
@@ -1273,6 +1316,7 @@ fn build_runner_config(table: &TableConfig) -> RunnerConfig {
 		no_flop_no_drop: table.no_flop_no_drop,
 		max_hands: None,
 		seed: table.seed,
+		max_seats,
 	}
 }
 

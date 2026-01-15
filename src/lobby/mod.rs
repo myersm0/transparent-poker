@@ -56,6 +56,7 @@ pub struct TableSummary {
 	pub players: usize,
 	pub max_players: usize,
 	pub status: TableStatus,
+	pub is_joinable: bool,
 }
 
 impl From<TableInfo> for TableSummary {
@@ -70,6 +71,7 @@ impl From<TableInfo> for TableSummary {
 			players: info.players,
 			max_players: info.max_players,
 			status: info.status,
+			is_joinable: info.is_joinable,
 		}
 	}
 }
@@ -81,6 +83,9 @@ impl From<&TableConfig> for TableSummary {
 			_ => "N/A".to_string(),
 		};
 		let buy_in = config.effective_buy_in();
+		let status = TableStatus::Waiting;
+		let players = 0;
+		let is_joinable = config.is_joinable(players, &status);
 		Self {
 			id: config.id.clone(),
 			name: config.name.clone(),
@@ -88,9 +93,10 @@ impl From<&TableConfig> for TableSummary {
 			betting: config.betting.to_string(),
 			blinds,
 			buy_in: format!("${:.0}", buy_in),
-			players: 0,
+			players,
 			max_players: config.max_players,
-			status: TableStatus::Waiting,
+			status,
+			is_joinable,
 		}
 	}
 }

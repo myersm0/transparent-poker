@@ -48,6 +48,7 @@ pub struct EventHistorian {
 	rake_collected: Arc<Mutex<f32>>,
 	action_history: Arc<Mutex<Vec<ActionRecord>>>,
 	current_street: Arc<Mutex<Street>>,
+	seat_map: Vec<Seat>,
 }
 
 impl EventHistorian {
@@ -59,6 +60,7 @@ impl EventHistorian {
 		starting_stacks: Vec<f32>,
 		rake_config: RakeConfig,
 		action_history: Arc<Mutex<Vec<ActionRecord>>>,
+		seat_map: Vec<Seat>,
 	) -> Self {
 		let num_players = starting_stacks.len();
 		Self {
@@ -76,6 +78,7 @@ impl EventHistorian {
 			rake_collected: Arc::new(Mutex::new(0.0)),
 			action_history,
 			current_street: Arc::new(Mutex::new(Street::Preflop)),
+			seat_map,
 		}
 	}
 
@@ -85,6 +88,10 @@ impl EventHistorian {
 
 	pub fn folded(&self) -> Arc<Mutex<Vec<bool>>> {
 		Arc::clone(&self.folded)
+	}
+
+	fn seat_at(&self, idx: usize) -> Seat {
+		self.seat_map.get(idx).copied().unwrap_or(Seat(idx))
 	}
 
 	fn emit(&self, event: GameEvent) {
@@ -116,7 +123,7 @@ impl EventHistorian {
 				let hole = [convert_card(&cards[0]), convert_card(&cards[1])];
 				hole_cards[i] = Some(hole);
 				self.emit(GameEvent::HoleCardsDealt {
-					seat: Seat(i),
+					seat: self.seat_at(i),
 					cards: hole,
 				});
 			}
@@ -192,10 +199,10 @@ impl Historian for EventHistorian {
 									card_suit_symbol(cards[1].suit),
 								);
 								self.emit(GameEvent::ChatMessage {
-									sender: ChatSender::Player(Seat(i)),
+									sender: ChatSender::Player(self.seat_at(i)),
 									text: format!("shows {}", card_str),
 								});
-								reveals.push((Seat(i), *cards));
+								reveals.push((self.seat_at(i), *cards));
 							}
 						}
 					}
@@ -216,7 +223,7 @@ impl Historian for EventHistorian {
 				self.stacks[payload.idx] = game_state.stacks[payload.idx];
 
 				self.emit(GameEvent::BlindPosted {
-					seat: Seat(payload.idx),
+					seat: self.seat_at(payload.idx),
 					blind_type,
 					amount: payload.bet,
 				});
@@ -254,20 +261,20 @@ impl Historian for EventHistorian {
 
 				let street = *lock_mutex(&self.current_street);
 				lock_mutex(&self.action_history).push(ActionRecord {
-					seat: Seat(payload.idx),
+					seat: self.seat_at(payload.idx),
 					action: action.clone(),
 					street,
 				});
 
 				self.emit(GameEvent::ActionTaken {
-					seat: Seat(payload.idx),
+					seat: self.seat_at(payload.idx),
 					action: action.clone(),
 					stack_after,
 					pot_after: game_state.total_pot,
 				});
 
 				self.emit(GameEvent::ChatMessage {
-					sender: ChatSender::Player(Seat(payload.idx)),
+					sender: ChatSender::Player(self.seat_at(payload.idx)),
 					text: action.description(),
 				});
 			}
@@ -297,7 +304,7 @@ impl Historian for EventHistorian {
 				}
 
 				self.emit(GameEvent::PotAwarded {
-					seat: Seat(payload.idx),
+					seat: self.seat_at(payload.idx),
 					amount: net_amount,
 					hand_description: hand_desc,
 					pot_type: PotType::Main,
@@ -328,6 +335,7 @@ impl Clone for EventHistorian {
 			rake_collected: Arc::clone(&self.rake_collected),
 			action_history: Arc::clone(&self.action_history),
 			current_street: Arc::clone(&self.current_street),
+			seat_map: self.seat_map.clone(),
 		}
 	}
 }

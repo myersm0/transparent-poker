@@ -15,6 +15,8 @@ fn lock_mutex<T>(mutex: &Mutex<T>) -> MutexGuard<'_, T> {
 pub struct PlayerAdapter {
 	port: Arc<dyn PlayerPort>,
 	seat: Seat,
+	player_idx: usize,
+	seat_map: Vec<Seat>,
 	hole_cards: Option<[Card; 2]>,
 	action_history: Arc<Mutex<Vec<ActionRecord>>>,
 	betting_structure: BettingStructure,
@@ -34,6 +36,8 @@ impl PlayerAdapter {
 	pub fn new(
 		port: Arc<dyn PlayerPort>,
 		seat: Seat,
+		player_idx: usize,
+		seat_map: Vec<Seat>,
 		betting_structure: BettingStructure,
 		action_history: Arc<Mutex<Vec<ActionRecord>>>,
 		event_tx: Sender<GameEvent>,
@@ -43,6 +47,8 @@ impl PlayerAdapter {
 		Self {
 			port,
 			seat,
+			player_idx,
+			seat_map,
 			hole_cards: None,
 			action_history,
 			betting_structure,
@@ -50,6 +56,10 @@ impl PlayerAdapter {
 			max_raises_per_round,
 			runtime_handle,
 		}
+	}
+
+	fn seat_at(&self, idx: usize) -> Seat {
+		self.seat_map.get(idx).copied().unwrap_or(Seat(idx))
 	}
 
 	fn build_snapshot(&self, game_state: &GameState) -> GameSnapshot {
@@ -68,7 +78,7 @@ impl PlayerAdapter {
 				let position = self.compute_position(i, game_state);
 				let is_active = game_state.player_active.get(i);
 				SeatSnapshot {
-					seat: Seat(i),
+					seat: self.seat_at(i),
 					name: String::new(),
 					stack,
 					current_bet: 0.0,
@@ -91,7 +101,7 @@ impl PlayerAdapter {
 	}
 
 	fn build_valid_actions(&self, game_state: &GameState) -> ValidActions {
-		let stack = game_state.stacks[self.seat.0];
+		let stack = game_state.stacks[self.player_idx];
 		let current_bet = game_state.current_round_bet();
 		let my_bet = game_state.current_round_current_player_bet();
 		let to_call = current_bet - my_bet;
@@ -272,7 +282,7 @@ impl PlayerAdapter {
 impl Agent for PlayerAdapter {
 	fn act(&mut self, _id: u128, game_state: &GameState) -> AgentAction {
 		if self.hole_cards.is_none() {
-			if let Some(hand) = game_state.hands.get(self.seat.0) {
+			if let Some(hand) = game_state.hands.get(self.player_idx) {
 				let cards: Vec<rs_poker::core::Card> = hand.iter().take(2).collect();
 				if cards.len() >= 2 {
 					self.hole_cards = Some([convert_card(&cards[0]), convert_card(&cards[1])]);

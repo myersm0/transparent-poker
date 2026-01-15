@@ -57,6 +57,12 @@ pub enum GameEvent {
 		reason: LeaveReason,
 	},
 
+	PlayerCashedOut {
+		seat: Seat,
+		name: String,
+		amount: f32,
+	},
+
 	GameStarted {
 		seats: Vec<SeatInfo>,
 	},
@@ -155,6 +161,7 @@ pub struct SeatInfo {
 	pub position: Position,
 	pub is_active: bool,
 	pub is_human: bool,
+	pub is_occupied: bool,
 }
 
 #[derive(Debug, Clone, Copy, Serialize, Deserialize)]

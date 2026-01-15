@@ -32,10 +32,12 @@ impl ViewUpdater {
 					.iter()
 					.map(|s| PlayerView {
 						seat: s.seat.0,
-						name: s.name.clone(),
+						name: if s.is_occupied { s.name.clone() } else { "Empty".to_string() },
 						stack: s.stack,
 						current_bet: 0.0,
-						status: if s.is_active {
+						status: if !s.is_occupied {
+							PlayerStatus::Empty
+						} else if s.is_active {
 							PlayerStatus::Active
 						} else {
 							PlayerStatus::Eliminated
